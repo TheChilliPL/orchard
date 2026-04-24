@@ -1,0 +1,14 @@
+[package]
+name = "orchard"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rumqttc = { version = "0.25.1", features = ["use-native-tls"] }
+tokio = "1.52.1"
+clap = { version = "4.6.1", features = ["derive", "env"] }
+gethostname = "1.1.0"
+dotenv = "0.15.0"
+
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
