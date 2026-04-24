@@ -567,6 +567,7 @@ dependencies = [
  "dotenv",
  "gethostname",
  "rumqttc",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
