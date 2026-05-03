@@ -1,13 +1,23 @@
 mod prelude;
+mod mqtt;
+mod discovery;
+mod modules;
+mod utils;
 
+use std::collections::HashMap;
+use std::time::Duration;
 use clap::Parser;
-use gethostname::gethostname;
+use mqtt::{MqttOptions, connect_mqtt, topic_matches};
 use prelude::*;
-use rumqttc::{AsyncClient, ClientError, ConnectionError, Event, EventLoop, LastWill, QoS, Transport};
-use std::fmt::{Debug, Formatter};
-use thiserror::Error;
+use rumqttc::{Event, Packet, QoS};
+use tokio::time;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::util::SubscriberInitExt;
+use crate::discovery::{DiscoveryPayload, DiscoveryDevice, DiscoveryOrigin};
+use crate::modules::media::MediaModule;
+use crate::modules::Module;
+use crate::modules::status::StatusModule;
+use crate::modules::volume::VolumeModule;
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -32,136 +42,11 @@ struct Cli {
     password: Option<String>,
 
     /// Hostname of the client. Used for hierarchical topics in MQTT. Defaults to device hostname.
-    #[arg(long)]
+    #[arg(long, env = "ORCHARD_HOSTNAME")]
     hostname: Option<String>,
     /// Client ID passed to MQTT. Defaults to `orchard-<hostname>`.
-    #[arg(long)]
+    #[arg(long, env = "MQTT_CLIENT_ID")]
     client_id: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct MqttOptions {
-    hostname: String,
-    client_id: String,
-    broker: String,
-    port: u16,
-    use_ssl: bool,
-    credentials: Option<MqttCredentials>,
-}
-
-impl From<&Cli> for MqttOptions {
-    fn from(cli: &Cli) -> Self {
-        let hostname = cli
-            .hostname
-            .clone()
-            .unwrap_or(gethostname().to_string_lossy().to_string());
-        let client_id = cli
-            .client_id
-            .clone()
-            .unwrap_or_else(|| format!("orchard-{}", hostname));
-
-        MqttOptions {
-            hostname,
-            client_id,
-            broker: cli.host.clone(),
-            port: cli.port,
-            use_ssl: cli.ssl,
-            credentials: cli.into(),
-        }
-    }
-}
-
-#[derive(Clone)]
-struct MqttCredentials {
-    username: String,
-    password: String,
-}
-
-impl From<&Cli> for Option<MqttCredentials> {
-    fn from(cli: &Cli) -> Option<MqttCredentials> {
-        if let Some(username) = cli.username.clone()
-            && let Some(password) = cli.password.clone()
-        {
-            Some(MqttCredentials { username, password })
-        } else {
-            None
-        }
-    }
-}
-
-impl Debug for MqttCredentials {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MqttCredentials")
-            .field("username", &self.username)
-            .finish_non_exhaustive()
-    }
-}
-
-#[derive(Debug, Error)]
-enum MqttConnectionError {
-    #[error("unexpected event: {0:?}")]
-    UnexpectedEvent(Event),
-    #[error("connection error: {0}")]
-    ConnectionError(#[from] ConnectionError),
-    #[error("client error: {0}")]
-    ClientError(#[from] ClientError),
-}
-
-impl From<Event> for MqttConnectionError {
-    fn from(event: Event) -> Self {
-        MqttConnectionError::UnexpectedEvent(event)
-    }
-}
-
-/// Connects to an MQTT broker.
-///
-/// Returns [Ok] if connection is successful, otherwise returns an [Err].
-///
-/// The connection is considered successful if the first event received from the broker is a `ConnAck` with `ConnectReturnCode::Success`.
-/// All other events should be handled by the application.
-async fn connect_mqtt(opts: MqttOptions) -> Result<(AsyncClient, EventLoop), MqttConnectionError> {
-    let mut rumqttc_opts = rumqttc::MqttOptions::new(opts.client_id, opts.broker, opts.port);
-
-    if let Some(credentials) = opts.credentials {
-        rumqttc_opts.set_credentials(credentials.username, credentials.password);
-    }
-
-    if opts.use_ssl {
-        rumqttc_opts.set_transport(Transport::tls_with_default_config());
-    }
-
-    rumqttc_opts.set_last_will(LastWill::new(
-        format!("orchard/{}/status", opts.hostname),
-        "offline",
-        QoS::AtLeastOnce,
-        true,
-    ));
-
-    let (mqttc, mut event_loop) = AsyncClient::new(rumqttc_opts, 10);
-
-    let event = event_loop.poll().await?;
-
-    match event {
-        Event::Incoming(rumqttc::Packet::ConnAck(rumqttc::mqttbytes::v4::ConnAck {
-            code: rumqttc::mqttbytes::v4::ConnectReturnCode::Success,
-            ..
-        })) => {
-            // Connection successful
-            debug!(?event, "Connection established successfully.");
-            mqttc.publish(
-                format!("orchard/{}/status", opts.hostname),
-                QoS::AtLeastOnce,
-                true,
-                "online",
-            ).await?;
-            Ok((mqttc, event_loop))
-        }
-        _ => {
-            // Something is wrong
-            error!(?event, "Unexpected event when trying to connect.");
-            Err(MqttConnectionError::UnexpectedEvent(event))
-        }
-    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -173,18 +58,110 @@ async fn main() {
     let cli = Cli::parse();
     let opts = MqttOptions::from(&cli);
 
+    let ref hostname = opts.hostname.clone();
+
     info!(?opts, "Orchard daemon starting!");
-    let (_mqttc, mut event_loop) = connect_mqtt(opts).await.expect("MQTT connection failed");
+    let (mqttc, mut event_loop) = connect_mqtt(opts).await.expect("MQTT connection failed");
     info!("MQTT connection established!");
 
+    let mut components = HashMap::with_capacity(32);
+    let mut subscriptions: Vec<(String, usize)> = Vec::with_capacity(32);
+
+    let modules: &mut [Box<dyn Module>] = &mut [
+        Box::new(StatusModule::new()),
+        Box::new(VolumeModule::new()),
+        #[cfg(target_os = "linux")]
+        Box::new(MediaModule::new()),
+    ];
+
+    for (module_idx, module) in modules.iter().enumerate() {
+        info!("Preparing module: {}.", module.name());
+
+        let discovery_components = module.discovery_components(hostname);
+        if !discovery_components.is_empty() {
+            debug!(?discovery_components, "Module {} added discovery components.", module.name());
+            components.extend(discovery_components);
+        }
+
+        let module_subscriptions = module.subscriptions(hostname);
+        if !module_subscriptions.is_empty() {
+            debug!(subscriptions = ?module_subscriptions, "Module {} added subscriptions.", module.name());
+            subscriptions.extend(
+                module_subscriptions
+                    .into_iter()
+                    .map(|topic| (topic, module_idx))
+            );
+        }
+    }
+
+    for topic in subscriptions.iter().map(|(topic, _)| topic).collect::<std::collections::HashSet<_>>() {
+        mqttc.subscribe(topic, QoS::AtLeastOnce).await.unwrap();
+    }
+
+    let discovery = DiscoveryPayload {
+        device: DiscoveryDevice {
+            name: hostname.clone(),
+            ids: vec![hostname.clone()],
+        },
+        origin: DiscoveryOrigin {
+            name: env!("CARGO_PKG_NAME").into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+        },
+        availability_topic: format!("orchard/{}/status", hostname),
+        components,
+    };
+
+    let discovery_topic = format!("homeassistant/device/orchard/{}/config", hostname);
+
+    debug!(topic = discovery_topic, payload = ?discovery, "Sending discovery payload.");
+
+    mqttc.publish(
+        discovery_topic,
+        QoS::AtLeastOnce,
+        true,
+        serde_json::to_string(&discovery).unwrap(),
+    ).await.unwrap();
+
+    for module in modules.iter_mut() {
+        debug!("Initializing module: {}", module.name());
+        module.init(hostname, &mqttc).await;
+    }
+
+    let mut update_interval = time::interval(Duration::from_secs(1));
+
     loop {
-        let notification = event_loop.poll().await.unwrap();
-        match notification {
-            Event::Incoming(packet) => {
-                debug!(?packet, "Incoming packet.")
+        tokio::select! {
+            notification = event_loop.poll() => {
+                match notification.unwrap() {
+                    Event::Incoming(packet) => {
+                        debug!(?packet, "Incoming packet.");
+
+                        if let Packet::Publish(publish) = &packet {
+                            let mut module_idxs = subscriptions
+                                .iter()
+                                .filter_map(|(topic_filter, module_idx)| {
+                                    topic_matches(topic_filter, &publish.topic).then_some(*module_idx)
+                                })
+                                .collect::<Vec<_>>();
+                            module_idxs.sort_unstable();
+                            module_idxs.dedup();
+
+                            for module_idx in module_idxs {
+                                modules[module_idx]
+                                    .handle_message(hostname, &mqttc, &publish.topic, publish.payload.as_ref())
+                                    .await;
+                            }
+                        }
+                    }
+                    Event::Outgoing(packet) => {
+                        debug!(?packet, "Outgoing packet.")
+                    }
+                }
             }
-            Event::Outgoing(packet) => {
-                debug!(?packet, "Outgoing packet.")
+            _ = update_interval.tick() => {
+                for module in modules.iter_mut() {
+                    module.update(hostname, &mqttc).await;
+                }
             }
         }
     }
