@@ -10,6 +10,7 @@ use clap::Parser;
 use mqtt::{MqttOptions, connect_mqtt, topic_matches};
 use prelude::*;
 use rumqttc::{Event, Packet, QoS};
+use tokio::sync::mpsc;
 use tokio::time;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -64,6 +65,35 @@ async fn main() {
     info!(?opts, "Orchard daemon starting!");
     let (mqttc, mut event_loop) = connect_mqtt(opts).await.expect("MQTT connection failed");
     info!("MQTT connection established!");
+
+    let (publish_tx, mut publish_rx) = mpsc::channel::<(String, Vec<u8>)>(32);
+    tokio::spawn(async move {
+        loop {
+            match event_loop.poll().await {
+                Ok(Event::Incoming(packet)) => {
+                    debug!(?packet, "Incoming packet.");
+
+                    if let Packet::Publish(publish) = packet {
+                        if publish_tx
+                            .send((publish.topic, publish.payload.to_vec()))
+                            .await
+                            .is_err()
+                        {
+                            warn!("MQTT publish channel closed, stopping event loop task.");
+                            break;
+                        }
+                    }
+                }
+                Ok(Event::Outgoing(packet)) => {
+                    debug!(?packet, "Outgoing packet.");
+                }
+                Err(err) => {
+                    error!(error = ?err, "MQTT event loop failed.");
+                    break;
+                }
+            }
+        }
+    });
 
     let mut components = HashMap::with_capacity(32);
     let mut subscriptions: Vec<(String, usize)> = Vec::with_capacity(32);
@@ -133,31 +163,25 @@ async fn main() {
 
     loop {
         tokio::select! {
-            notification = event_loop.poll() => {
-                match notification.unwrap() {
-                    Event::Incoming(packet) => {
-                        trace!(?packet, "Incoming packet.");
+            publish = publish_rx.recv() => {
+                let Some((topic, payload)) = publish else {
+                    error!("MQTT event loop task stopped.");
+                    break;
+                };
 
-                        if let Packet::Publish(publish) = &packet {
-                            let mut module_idxs = subscriptions
-                                .iter()
-                                .filter_map(|(topic_filter, module_idx)| {
-                                    topic_matches(topic_filter, &publish.topic).then_some(*module_idx)
-                                })
-                                .collect::<Vec<_>>();
-                            module_idxs.sort_unstable();
-                            module_idxs.dedup();
+                let mut module_idxs = subscriptions
+                    .iter()
+                    .filter_map(|(topic_filter, module_idx)| {
+                        topic_matches(topic_filter, &topic).then_some(*module_idx)
+                    })
+                    .collect::<Vec<_>>();
+                module_idxs.sort_unstable();
+                module_idxs.dedup();
 
-                            for module_idx in module_idxs {
-                                modules[module_idx]
-                                    .handle_message(hostname, &mqttc, &publish.topic, publish.payload.as_ref())
-                                    .await;
-                            }
-                        }
-                    }
-                    Event::Outgoing(packet) => {
-                        trace!(?packet, "Outgoing packet.")
-                    }
+                for module_idx in module_idxs {
+                    modules[module_idx]
+                        .handle_message(hostname, &mqttc, &topic, &payload)
+                        .await;
                 }
             }
             _ = update_interval.tick() => {
