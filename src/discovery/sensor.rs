@@ -14,7 +14,10 @@ pub struct SensorSpec {
     pub device_class: Option<SensorDeviceClass>,
     #[short_name("ops")]
     pub options: Option<Vec<String>>,
+    #[short_name("sug_dsp_prc")]
     pub suggested_display_precision: Option<i32>,
+    #[short_name("unit_of_meas")]
+    pub unit_of_measurement: Option<String>,
 }
 
 #[derive(

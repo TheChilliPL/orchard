@@ -134,7 +134,7 @@ async fn main() {
             notification = event_loop.poll() => {
                 match notification.unwrap() {
                     Event::Incoming(packet) => {
-                        debug!(?packet, "Incoming packet.");
+                        trace!(?packet, "Incoming packet.");
 
                         if let Packet::Publish(publish) = &packet {
                             let mut module_idxs = subscriptions
@@ -154,7 +154,7 @@ async fn main() {
                         }
                     }
                     Event::Outgoing(packet) => {
-                        debug!(?packet, "Outgoing packet.")
+                        trace!(?packet, "Outgoing packet.")
                     }
                 }
             }
