@@ -55,7 +55,7 @@ struct Cli {
 async fn main() {
     init_tracing();
 
-    dotenv::dotenv().unwrap();
+    _ = dotenv::dotenv().ok();
 
     let cli = Cli::parse();
     let opts = MqttOptions::from(&cli);
@@ -71,7 +71,7 @@ async fn main() {
         loop {
             match event_loop.poll().await {
                 Ok(Event::Incoming(packet)) => {
-                    debug!(?packet, "Incoming packet.");
+                    trace!(?packet, "Incoming packet.");
 
                     if let Packet::Publish(publish) = packet {
                         if publish_tx
@@ -85,7 +85,7 @@ async fn main() {
                     }
                 }
                 Ok(Event::Outgoing(packet)) => {
-                    debug!(?packet, "Outgoing packet.");
+                    trace!(?packet, "Outgoing packet.");
                 }
                 Err(err) => {
                     error!(error = ?err, "MQTT event loop failed.");

@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use async_trait::async_trait;
 use rumqttc::{AsyncClient, QoS};
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 use crate::discovery::{ButtonSpec, DiscoveryComponent, SensorDeviceClass, SensorSpec};
 use crate::modules::Module;
 
@@ -185,7 +185,7 @@ impl Module for MediaModule {
                 None => "None".into(),
             };
 
-            debug!("Publishing media status.");
+            trace!("Publishing media status.");
 
             mqttc.publish(format!("orchard/{hostname}/media/status"), QoS::AtMostOnce, true, status_text).await.unwrap();
             mqttc.publish(format!("orchard/{hostname}/media/position"), QoS::AtMostOnce, true, position_text).await.unwrap();
