@@ -15,6 +15,7 @@ use crate::modules::Module;
 pub struct MediaModule {
     last_metadata: Option<MediaMetadata>,
     last_status: Option<MediaStatus>,
+    force_update: bool,
 }
 
 impl MediaModule {
@@ -23,10 +24,6 @@ impl MediaModule {
     fn active_player(&self) -> Option<mpris::Player> {
         let player_finder = mpris::PlayerFinder::new().ok();
         player_finder.map(|f| f.find_active().ok()).flatten()
-    }
-
-    fn fetch_metadata(&self, player: &mpris::Player) -> Option<mpris::Metadata> {
-        player.get_metadata().ok()
     }
 }
 
@@ -137,6 +134,7 @@ impl Module for MediaModule {
     }
 
     async fn init(&mut self, hostname: &str, mqttc: &AsyncClient) {
+        self.force_update = true;
         self.update(hostname, mqttc).await;
     }
 
@@ -176,16 +174,18 @@ impl Module for MediaModule {
             (status, metadata)
         };
 
-        if status != self.last_status {
+        if status != self.last_status || self.force_update {
             let status_text = match status {
                 Some(MediaStatus { playing, .. }) => if playing { "Playing" } else { "Paused" },
                 None => "Stopped",
             };
 
             let position_text = match status {
-                Some(MediaStatus { position, .. }) => position.map(|p| p.as_secs_f32().to_string()).unwrap_or_else(|| "unknown".into()),
-                None => "".into(),
+                Some(MediaStatus { position, .. }) => position.map(|p| p.as_secs_f32().to_string()).unwrap_or_else(|| "None".into()),
+                None => "None".into(),
             };
+
+            debug!("Publishing media status.");
 
             mqttc.publish(format!("orchard/{hostname}/media/status"), QoS::AtMostOnce, true, status_text).await.unwrap();
             mqttc.publish(format!("orchard/{hostname}/media/position"), QoS::AtMostOnce, true, position_text).await.unwrap();
@@ -193,10 +193,12 @@ impl Module for MediaModule {
             self.last_status = status;
         }
 
-        if metadata != self.last_metadata {
+        if metadata != self.last_metadata || self.force_update {
             let title = metadata.as_ref().map_or("", |m| &m.title);
             let artists = metadata.as_ref().map_or("", |m| &m.artists);
-            let duration_text = metadata.as_ref().map_or_else(|| "".into(), |m| m.duration.map(|d| d.as_secs_f32().to_string()).unwrap_or_else(|| "unknown".into()));
+            let duration_text = metadata.as_ref().map_or_else(|| "None".into(), |m| m.duration.map(|d| d.as_secs_f32().to_string()).unwrap_or_else(|| "None".into()));
+
+            debug!("Publishing media metadata.");
 
             mqttc.publish(format!("orchard/{hostname}/media/title"), QoS::AtMostOnce, true, title).await.unwrap();
             mqttc.publish(format!("orchard/{hostname}/media/artists"), QoS::AtMostOnce, true, artists).await.unwrap();
@@ -204,6 +206,8 @@ impl Module for MediaModule {
 
             self.last_metadata = metadata;
         }
+
+        self.force_update = false;
     }
 }
 
