@@ -1,6 +1,7 @@
 pub mod status;
 pub mod volume;
 pub mod media;
+pub mod system_control;
 
 use std::collections::HashMap;
 use async_trait::async_trait;
@@ -14,7 +15,7 @@ pub trait Module: Send {
     fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> { HashMap::new() }
     fn subscriptions(&self, hostname: &str) -> Vec<String> { Vec::new() }
 
-    async fn init(&mut self, hostname: &str, mqttc: &rumqttc::AsyncClient);
+    async fn init(&mut self, hostname: &str, mqttc: &rumqttc::AsyncClient) { }
     async fn handle_message(&mut self, hostname: &str, mqttc: &rumqttc::AsyncClient, topic: &str, payload: &[u8]) { }
     async fn update(&mut self, hostname: &str, mqttc: &rumqttc::AsyncClient) { }
 }

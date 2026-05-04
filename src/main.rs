@@ -17,6 +17,7 @@ use crate::discovery::{DiscoveryPayload, DiscoveryDevice, DiscoveryOrigin};
 use crate::modules::media::MediaModule;
 use crate::modules::Module;
 use crate::modules::status::StatusModule;
+use crate::modules::system_control::SystemControlModule;
 use crate::modules::volume::VolumeModule;
 
 #[derive(clap::Parser)]
@@ -72,6 +73,7 @@ async fn main() {
         Box::new(VolumeModule::new()),
         #[cfg(target_os = "linux")]
         Box::new(MediaModule::new()),
+        Box::new(SystemControlModule::new()),
     ];
 
     for (module_idx, module) in modules.iter().enumerate() {
