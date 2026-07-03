@@ -29,5 +29,7 @@ volumecontrol = "0.1.4"
 system_shutdown = "4.1.0"
 sysinfo = "0.39.5"
 
+openssl = "0.10.81"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 mpris = "2.0.1"
