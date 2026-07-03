@@ -38,10 +38,10 @@ impl Module for SysInfoModule {
     fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> {
         HashMap::from([
             ("cpu-usage".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{}-cpu-usage", hostname),
+                unique_id: format!("orchard-{hostname}-cpu-usage"),
                 name: "CPU usage".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{}/cpu/usage", hostname),
+                    state_topic: format!("orchard/{hostname}/cpu/usage"),
                     unit_of_measurement: Some("%".into()),
                     suggested_display_precision: Some(1),
                     ..Default::default()
@@ -50,10 +50,10 @@ impl Module for SysInfoModule {
                 ..Default::default()
             }),
             ("ram-total_mib".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{}-ram-total_mib", hostname),
+                unique_id: format!("orchard-{hostname}-ram-total_mib"),
                 name: "RAM available".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{}/ram/total_mib", hostname),
+                    state_topic: format!("orchard/{hostname}/ram/total_mib"),
                     unit_of_measurement: Some("MiB".into()),
                     suggested_display_precision: Some(0),
                     device_class: Some("data_size".into()),
@@ -63,10 +63,10 @@ impl Module for SysInfoModule {
                 ..Default::default()
             }),
             ("ram-usage_mib".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{}-ram-usage_mib", hostname),
+                unique_id: format!("orchard-{hostname}-ram-usage_mib"),
                 name: "RAM usage".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{}/ram/usage_mib", hostname),
+                    state_topic: format!("orchard/{hostname}/ram/usage_mib"),
                     unit_of_measurement: Some("MiB".into()),
                     suggested_display_precision: Some(0),
                     device_class: Some("data_size".into()),
@@ -76,10 +76,10 @@ impl Module for SysInfoModule {
                 ..Default::default()
             }),
             ("ram-usage_percent".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{}-ram-usage_percent", hostname),
+                unique_id: format!("orchard-{hostname}-ram-usage_percent"),
                 name: "RAM usage (%)".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{}/ram/usage_percent", hostname),
+                    state_topic: format!("orchard/{hostname}/ram/usage_percent"),
                     unit_of_measurement: Some("%".into()),
                     suggested_display_precision: Some(1),
                     ..Default::default()

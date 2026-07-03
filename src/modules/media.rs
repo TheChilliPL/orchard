@@ -36,7 +36,7 @@ impl Module for MediaModule {
     fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> {
         HashMap::from([
             ("media_toggle".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{}-media_play_pause", hostname),
+                unique_id: format!("orchard-{hostname}-media_play_pause"),
                 name: "Play/pause".into(),
                 spec: ButtonSpec {
                     command_topic: format!("orchard/{hostname}/media/toggle"),

@@ -40,22 +40,22 @@ impl Module for VolumeModule {
     fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> {
         HashMap::from([
             ("mute".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{}-mute", hostname),
+                unique_id: format!("orchard-{hostname}-mute"),
                 name: "Mute audio".into(),
                 spec: SwitchSpec {
-                    state_topic: Some(format!("orchard/{}/mute", hostname)),
-                    command_topic: format!("orchard/{}/mute/set", hostname),
+                    state_topic: Some(format!("orchard/{hostname}/mute")),
+                    command_topic: format!("orchard/{hostname}/mute/set"),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:volume-mute".into()),
                 ..Default::default()
             }),
             ("volume".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{}-volume", hostname),
+                unique_id: format!("orchard-{hostname}-volume"),
                 name: "Volume".into(),
                 spec: NumberSpec {
-                    state_topic: Some(format!("orchard/{}/volume", hostname)),
-                    command_topic: format!("orchard/{}/volume/set", hostname),
+                    state_topic: Some(format!("orchard/{hostname}/volume")),
+                    command_topic: format!("orchard/{hostname}/volume/set"),
                     // step: 0.1,
                     unit_of_measurement: Some("%".into()),
                     ..Default::default()
@@ -64,20 +64,20 @@ impl Module for VolumeModule {
                 ..Default::default()
             }),
             ("volume_inc".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{}-volume-inc", hostname),
+                unique_id: format!("orchard-{hostname}-volume-inc"),
                 name: "Increase volume".into(),
                 spec: ButtonSpec {
-                    command_topic: format!("orchard/{}/volume/inc", hostname),
+                    command_topic: format!("orchard/{hostname}/volume/inc"),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:volume-plus".into()),
                 ..Default::default()
             }),
             ("volume_dec".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{}-volume-dec", hostname),
+                unique_id: format!("orchard-{hostname}-volume-dec"),
                 name: "Decrease volume".into(),
                 spec: ButtonSpec {
-                    command_topic: format!("orchard/{}/volume/dec", hostname),
+                    command_topic: format!("orchard/{hostname}/volume/dec"),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:volume-minus".into()),
@@ -88,10 +88,10 @@ impl Module for VolumeModule {
 
     fn subscriptions(&self, hostname: &str) -> Vec<String> {
         vec![
-            format!("orchard/{}/mute/set", hostname),
-            format!("orchard/{}/volume/set", hostname),
-            format!("orchard/{}/volume/inc", hostname),
-            format!("orchard/{}/volume/dec", hostname),
+            format!("orchard/{hostname}/mute/set"),
+            format!("orchard/{hostname}/volume/set"),
+            format!("orchard/{hostname}/volume/inc"),
+            format!("orchard/{hostname}/volume/dec"),
         ]
     }
 
@@ -100,10 +100,10 @@ impl Module for VolumeModule {
     }
 
     async fn handle_message(&mut self, hostname: &str, mqttc: &rumqttc::AsyncClient, topic: &str, payload: &[u8]) {
-        let volume_topic = format!("orchard/{}/volume/set", hostname);
-        let mute_topic = format!("orchard/{}/mute/set", hostname);
-        let inc_topic = format!("orchard/{}/volume/inc", hostname);
-        let dec_topic = format!("orchard/{}/volume/dec", hostname);
+        let volume_topic = format!("orchard/{hostname}/volume/set");
+        let mute_topic = format!("orchard/{hostname}/mute/set");
+        let inc_topic = format!("orchard/{hostname}/volume/inc");
+        let dec_topic = format!("orchard/{hostname}/volume/dec");
 
         let Ok(payload) = std::str::from_utf8(payload) else {
             warn!(topic, "Ignoring non-UTF8 payload.");
@@ -153,8 +153,8 @@ impl Module for VolumeModule {
 
         debug!(?state, "Updating volume state.");
 
-        mqttc.publish(format!("orchard/{}/mute", hostname), QoS::AtMostOnce, true, if state.muted { "ON" } else { "OFF" }).await.unwrap();
-        mqttc.publish(format!("orchard/{}/volume", hostname), QoS::AtMostOnce, true, state.volume.to_string()).await.unwrap();
+        mqttc.publish(format!("orchard/{hostname}/mute"), QoS::AtMostOnce, true, if state.muted { "ON" } else { "OFF" }).await.unwrap();
+        mqttc.publish(format!("orchard/{hostname}/volume"), QoS::AtMostOnce, true, state.volume.to_string()).await.unwrap();
 
         self.last_state = Some(state);
 

@@ -24,7 +24,7 @@ impl From<&Cli> for MqttOptions {
         let client_id = cli
             .client_id
             .clone()
-            .unwrap_or_else(|| format!("orchard-{}", hostname));
+            .unwrap_or_else(|| format!("orchard-{hostname}"));
 
         MqttOptions {
             hostname,

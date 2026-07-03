@@ -18,10 +18,10 @@ impl Module for StatusModule {
     fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> {
         HashMap::from([
             ("status".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{}-status", hostname),
+                unique_id: format!("orchard-{hostname}-status"),
                 name: "Status".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{}/status", hostname),
+                    state_topic: format!("orchard/{hostname}/status"),
                     value_template: Some("{{value | capitalize}}".into()),
                     options: Some(vec!["Online".into()]),
                     device_class: Some(SensorDeviceClass::Enum),

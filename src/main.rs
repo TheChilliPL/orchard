@@ -141,11 +141,11 @@ async fn main() {
             name: env!("CARGO_PKG_NAME").into(),
             version: env!("CARGO_PKG_VERSION").into(),
         },
-        availability_topic: format!("orchard/{}/status", hostname),
+        availability_topic: format!("orchard/{hostname}/status"),
         components,
     };
 
-    let discovery_topic = format!("homeassistant/device/orchard/{}/config", hostname);
+    let discovery_topic = format!("homeassistant/device/orchard/{hostname}/config");
 
     debug!(topic = discovery_topic, payload = ?discovery, "Sending discovery payload.");
 
