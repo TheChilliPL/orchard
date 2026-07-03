@@ -3,8 +3,10 @@ mod mqtt;
 mod discovery;
 mod modules;
 mod utils;
+pub mod config;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Duration;
 use clap::Parser;
 use mqtt::{MqttOptions, connect_mqtt, topic_matches};
@@ -14,6 +16,7 @@ use tokio::sync::mpsc;
 use tokio::time;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::util::SubscriberInitExt;
+use crate::config::Config;
 use crate::discovery::{DiscoveryPayload, DiscoveryDevice, DiscoveryOrigin};
 use crate::modules::media::MediaModule;
 use crate::modules::Module;
@@ -50,6 +53,15 @@ struct Cli {
     /// Client ID passed to MQTT. Defaults to `orchard-<hostname>`.
     #[arg(long, env = "MQTT_CLIENT_ID")]
     client_id: Option<String>,
+
+    /// Specifies the config path to load.
+    ///
+    /// By default, chooses one depending on the system.
+    /// Linux: `~/.config/orchard/config.toml`,
+    /// Windows: `%APPDATA%/Orchard/config.toml`,
+    /// MacOS: `~/Library/Application Support/dev.thechilli.orchard/config.toml`.
+    #[arg(short, long = "config", env = "ORCHARD_CONFIG")]
+    config_path: Option<PathBuf>,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -99,14 +111,14 @@ async fn main() {
     let mut components = HashMap::with_capacity(32);
     let mut subscriptions: Vec<(String, usize)> = Vec::with_capacity(32);
 
-    let modules: &mut [Box<dyn Module>] = &mut [
-        Box::new(StatusModule::new()),
-        Box::new(VolumeModule::new()),
-        #[cfg(target_os = "linux")]
-        Box::new(MediaModule::new()),
-        Box::new(SystemControlModule::new()),
-        Box::new(SysInfoModule::new()),
-    ];
+    let config = match Config::load(cli.config_path.as_deref()) {
+        Ok(c) => c,
+        Err(e) => {
+            panic!("Failed to load config: {}", e);
+        }
+    };
+
+    let mut modules = config.load_modules();
 
     for (module_idx, module) in modules.iter().enumerate() {
         info!("Preparing module: {}.", module.name());

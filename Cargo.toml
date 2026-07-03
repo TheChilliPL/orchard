@@ -22,8 +22,12 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+toml = "1.1.2+spec-1.1.0"
 serde_with = "3.19.0"
 strum = { version = "0.28.0", features = ["derive"] }
+
+dirs = "6.0.0"
+cfg-if = "1.0.4"
 
 volumecontrol = "0.1.4"
 system_shutdown = "4.1.0"
