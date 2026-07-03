@@ -123,14 +123,14 @@ impl Module for SysInfoModule {
             update_usage_percent = true;
         }
 
-        if self.previous_ram_used != Some(ram_total_b) {
+        if self.previous_ram_used != Some(ram_usage_b) {
             mqttc.publish(
                 format!("orchard/{hostname}/ram/usage_mib"),
                 QoS::AtMostOnce,
                 true,
                 ram_usage_mib.to_string(),
             ).await.unwrap();
-            self.previous_ram_used = Some(ram_total_b);
+            self.previous_ram_used = Some(ram_usage_b);
             update_usage_percent = true;
         }
 
