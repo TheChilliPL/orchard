@@ -18,6 +18,7 @@ use crate::discovery::{DiscoveryPayload, DiscoveryDevice, DiscoveryOrigin};
 use crate::modules::media::MediaModule;
 use crate::modules::Module;
 use crate::modules::status::StatusModule;
+use crate::modules::sysinfo::SysInfoModule;
 use crate::modules::system_control::SystemControlModule;
 use crate::modules::volume::VolumeModule;
 
@@ -104,6 +105,7 @@ async fn main() {
         #[cfg(target_os = "linux")]
         Box::new(MediaModule::new()),
         Box::new(SystemControlModule::new()),
+        Box::new(SysInfoModule::new()),
     ];
 
     for (module_idx, module) in modules.iter().enumerate() {
@@ -160,6 +162,8 @@ async fn main() {
     }
 
     let mut update_interval = time::interval(Duration::from_secs(1));
+
+    info!("Orchard started successfully!");
 
     loop {
         tokio::select! {
