@@ -3,6 +3,7 @@ pub mod volume;
 pub mod media;
 pub mod system_control;
 pub mod sysinfo;
+pub mod nvidia;
 
 use std::collections::HashMap;
 use async_trait::async_trait;

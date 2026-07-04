@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use rumqttc::{AsyncClient, QoS};
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System};
 use tracing::debug;
-use crate::discovery::{DiscoveryComponent, SensorSpec};
+use crate::discovery::{DiscoveryComponent, SensorDeviceClass, SensorSpec};
 use crate::modules::Module;
 
 pub struct SysInfoModule {
@@ -56,7 +56,7 @@ impl Module for SysInfoModule {
                     state_topic: format!("orchard/{hostname}/ram/total_mib"),
                     unit_of_measurement: Some("MiB".into()),
                     suggested_display_precision: Some(0),
-                    device_class: Some("data_size".into()),
+                    device_class: Some(SensorDeviceClass::DataSize),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:memory".into()),
@@ -69,7 +69,7 @@ impl Module for SysInfoModule {
                     state_topic: format!("orchard/{hostname}/ram/usage_mib"),
                     unit_of_measurement: Some("MiB".into()),
                     suggested_display_precision: Some(0),
-                    device_class: Some("data_size".into()),
+                    device_class: Some(SensorDeviceClass::DataSize),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:memory".into()),

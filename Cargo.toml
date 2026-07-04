@@ -32,6 +32,7 @@ cfg-if = "1.0.4"
 volumecontrol = "0.1.4"
 system_shutdown = "4.1.0"
 sysinfo = "0.39.5"
+nvml-wrapper = "0.12.1"
 
 openssl = "0.10.81"
 

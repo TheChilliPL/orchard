@@ -1,10 +1,11 @@
 use std::borrow::Cow;
-use std::path::{Path, PathBuf};
+use std::path::{Display, Path, PathBuf};
 use cfg_if::cfg_if;
 use serde::Deserialize;
 use tracing::{info, warn};
 use crate::modules::media::MediaModule;
 use crate::modules::Module;
+use crate::modules::nvidia::NvidiaModule;
 use crate::modules::status::StatusModule;
 use crate::modules::sysinfo::SysInfoModule;
 use crate::modules::system_control::SystemControlModule;
@@ -91,6 +92,9 @@ pub enum ModuleConfig {
     Media,
     SystemControl,
     SysInfo,
+    Nvidia {
+        device: u32,
+    },
 }
 
 impl ModuleConfig {
@@ -104,6 +108,7 @@ impl ModuleConfig {
             ModuleConfig::Media => Err("Media module is only available on Linux".to_string()),
             ModuleConfig::SystemControl => Ok(Box::new(SystemControlModule::new())),
             ModuleConfig::SysInfo => Ok(Box::new(SysInfoModule::new())),
+            ModuleConfig::Nvidia { device } => Ok(Box::new(NvidiaModule::new(*device).map_err(|e| e.to_string())?)),
         }
     }
 }
