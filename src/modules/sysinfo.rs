@@ -18,7 +18,7 @@ pub struct SysInfoModuleConfig {
     read_temperature: bool,
     /// Which temperature sensor label to use.
     ///
-    /// By default, tries to find `* Tctl` or `* Tccd1`. If fails to find either, logs an error and skips temperature reading.
+    /// By default, tries to find `* Tccd1` or `* Tctl`. If fails to find either, logs an error and skips temperature reading.
     /// Found component labels are logged as debug messages when the module starts as well as logged whenever an error occurs.
     #[serde(default)]
     temperature_sensor_label: Option<String>,
@@ -88,11 +88,11 @@ impl SysInfoModule {
     }
 
     fn try_find_temp_component(components: &Components) -> Option<String> {
-        let tctl = components.iter().find(|c| c.label().ends_with(" Tctl"));
-        if let Some(tctl) = tctl { return Some(tctl.label().to_string()); }
-
         let tccd1 = components.iter().find(|c| c.label().ends_with(" Tccd1"));
         if let Some(tccd1) = tccd1 { return Some(tccd1.label().to_string()); }
+
+        let tctl = components.iter().find(|c| c.label().ends_with(" Tctl"));
+        if let Some(tctl) = tctl { return Some(tctl.label().to_string()); }
 
         None
     }
