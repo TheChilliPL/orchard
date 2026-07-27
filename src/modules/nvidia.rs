@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use crate::modules::Module;
 use nvml_wrapper::error::NvmlError;
 use nvml_wrapper::{Device, Nvml};
+use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
 use rumqttc::{AsyncClient, QoS};
+use tracing::warn;
 use crate::discovery::{DiscoveryComponent, SensorDeviceClass, SensorSpec};
 
 pub struct NvidiaModule {
@@ -14,6 +16,7 @@ pub struct NvidiaModule {
     previous_vram_usage_mib: Option<f32>,
     previous_vram_total_mib: Option<f32>,
     previous_vram_usage_percent: Option<f32>,
+    previous_gpu_temp: Option<u32>,
 }
 
 impl NvidiaModule {
@@ -27,14 +30,12 @@ impl NvidiaModule {
             previous_vram_usage_mib: None,
             previous_vram_total_mib: None,
             previous_vram_usage_percent: None,
+            previous_gpu_temp: None,
         })
     }
 
     fn device(&self) -> Result<Device, NvmlError> {
         self.nvml.device_by_index(self.device_index)
-    }
-
-    fn read_metadata(&self) {
     }
 }
 
@@ -92,6 +93,18 @@ impl Module for NvidiaModule {
                 }.into(),
                 ..Default::default()
             }),
+            ("nvidia-gpu_temp".into(), DiscoveryComponent {
+                unique_id: format!("orchard-{hostname}-nvidia-gpu_temp"),
+                name: "GPU temperature".into(),
+                spec: SensorSpec {
+                    state_topic: format!("orchard/{hostname}/nvidia/gpu_temp"),
+                    unit_of_measurement: Some("°C".into()),
+                    device_class: Some(SensorDeviceClass::Temperature),
+                    suggested_display_precision: Some(0),
+                    ..Default::default()
+                }.into(),
+                ..Default::default()
+            }),
         ])
     }
 
@@ -105,6 +118,11 @@ impl Module for NvidiaModule {
         let vram_usage_mib = mem_info.used as f32 / 1024.0 / 1024.0;
         let vram_total_mib = mem_info.total as f32 / 1024.0 / 1024.0;
         let vram_usage_percent = (vram_usage_mib / vram_total_mib) * 100.0;
+        let gpu_temp = dev.temperature(TemperatureSensor::Gpu);
+
+        if let Err(err) = gpu_temp.as_ref() {
+            warn!("Failed to read GPU temperature: {err}");
+        }
 
         if self.previous_gpu_usage != Some(gpu_usage) {
             mqttc.publish(
@@ -144,6 +162,16 @@ impl Module for NvidiaModule {
                 vram_usage_percent.to_string(),
             ).await.unwrap();
             self.previous_vram_usage_percent = Some(vram_usage_percent);
+        }
+
+        if self.previous_gpu_temp != gpu_temp.as_ref().ok().copied() {
+            mqttc.publish(
+                format!("orchard/{hostname}/nvidia/gpu_temp"),
+                QoS::AtMostOnce,
+                true,
+                gpu_temp.as_ref().ok().map_or_else(|| "".to_string(), |it| it.to_string()),
+            ).await.unwrap();
+            self.previous_gpu_temp = gpu_temp.ok();
         }
     }
 }

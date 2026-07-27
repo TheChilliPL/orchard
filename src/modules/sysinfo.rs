@@ -241,6 +241,7 @@ impl Module for SysInfoModule {
                         true,
                         temp.map_or_else(|| "".to_string(), |t| t.to_string())
                     ).await.unwrap();
+                    self.previous_temp = temp;
                 }
             } else {
                 error!("Temperature component {temp_component_label} unavailable!");
