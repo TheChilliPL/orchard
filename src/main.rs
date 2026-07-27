@@ -125,13 +125,13 @@ async fn main() {
 
         let discovery_components = module.discovery_components(hostname);
         if !discovery_components.is_empty() {
-            debug!(?discovery_components, "Module {} added discovery components.", module.name());
+            trace!(?discovery_components, "Module {} added discovery components.", module.name());
             components.extend(discovery_components);
         }
 
         let module_subscriptions = module.subscriptions(hostname);
         if !module_subscriptions.is_empty() {
-            debug!(subscriptions = ?module_subscriptions, "Module {} added subscriptions.", module.name());
+            trace!(subscriptions = ?module_subscriptions, "Module {} added subscriptions.", module.name());
             subscriptions.extend(
                 module_subscriptions
                     .into_iter()
@@ -159,7 +159,7 @@ async fn main() {
 
     let discovery_topic = format!("homeassistant/device/orchard/{hostname}/config");
 
-    debug!(topic = discovery_topic, payload = ?discovery, "Sending discovery payload.");
+    trace!(topic = discovery_topic, payload = ?discovery, "Sending discovery payload.");
 
     mqttc.publish(
         discovery_topic,

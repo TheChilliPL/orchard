@@ -7,7 +7,7 @@ use crate::modules::media::MediaModule;
 use crate::modules::Module;
 use crate::modules::nvidia::NvidiaModule;
 use crate::modules::status::StatusModule;
-use crate::modules::sysinfo::SysInfoModule;
+use crate::modules::sysinfo::{SysInfoModule, SysInfoModuleConfig};
 use crate::modules::system_control::SystemControlModule;
 use crate::modules::volume::VolumeModule;
 
@@ -21,7 +21,7 @@ impl Default for Config {
         Config {
             modules: vec![
                 ModuleConfig::Status,
-                ModuleConfig::SysInfo,
+                ModuleConfig::SysInfo(SysInfoModuleConfig::default()),
             ]
         }
     }
@@ -84,14 +84,14 @@ impl Config {
     }
 }
 
-#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ModuleConfig {
     Status,
     Volume,
     Media,
     SystemControl,
-    SysInfo,
+    SysInfo(SysInfoModuleConfig),
     Nvidia {
         device: u32,
     },
@@ -107,7 +107,7 @@ impl ModuleConfig {
             #[cfg(not(target_os = "linux"))]
             ModuleConfig::Media => Err("Media module is only available on Linux".to_string()),
             ModuleConfig::SystemControl => Ok(Box::new(SystemControlModule::new())),
-            ModuleConfig::SysInfo => Ok(Box::new(SysInfoModule::new())),
+            ModuleConfig::SysInfo(config) => Ok(Box::new(SysInfoModule::new(config))),
             ModuleConfig::Nvidia { device } => Ok(Box::new(NvidiaModule::new(*device).map_err(|e| e.to_string())?)),
         }
     }

@@ -1,10 +1,37 @@
 use std::collections::HashMap;
 use async_trait::async_trait;
 use rumqttc::{AsyncClient, QoS};
-use sysinfo::{CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System};
-use tracing::debug;
+use serde::Deserialize;
+use sysinfo::{Component, Components, CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System};
+use tracing::{debug, error, info, warn};
 use crate::discovery::{DiscoveryComponent, SensorDeviceClass, SensorSpec};
 use crate::modules::Module;
+
+/// Function returning `true` to use with `#[serde(default = "return_true")]`.
+#[allow(unused)]
+fn return_true() -> bool { true }
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct SysInfoModuleConfig {
+    /// Whether to try to read CPU temperature.
+    #[serde(default = "return_true")]
+    read_temperature: bool,
+    /// Which temperature sensor label to use.
+    ///
+    /// By default, tries to find `* Tctl` or `* Tccd1`. If fails to find either, logs an error and skips temperature reading.
+    /// Found component labels are logged as debug messages when the module starts as well as logged whenever an error occurs.
+    #[serde(default)]
+    temperature_sensor_label: Option<String>,
+}
+
+impl Default for SysInfoModuleConfig {
+    fn default() -> Self {
+        SysInfoModuleConfig {
+            read_temperature: true,
+            temperature_sensor_label: None,
+        }
+    }
+}
 
 pub struct SysInfoModule {
     refresh_kind: RefreshKind,
@@ -12,20 +39,62 @@ pub struct SysInfoModule {
     previous_cpu_usage: Option<f32>,
     previous_ram_total: Option<u64>,
     previous_ram_used: Option<u64>,
+    previous_temp: Option<f32>,
+    temp_component: Option<String>,
 }
 
 impl SysInfoModule {
-    pub fn new() -> SysInfoModule {
+    pub fn new(config: &SysInfoModuleConfig) -> SysInfoModule {
         let refresh_kind = RefreshKind::nothing()
             .with_cpu(CpuRefreshKind::nothing().with_cpu_usage())
             .with_memory(MemoryRefreshKind::everything());
+
+        let components = Components::new_with_refreshed_list();
+        let components_str = components.iter().map(|c: &Component|
+            format!("{} @ {}", c.label(), c.temperature().map_or_else(|| "unknown".to_string(), |t| format!("{t}°C")))
+        ).collect::<Vec<_>>().join(", ");
+        debug!("Found temperature components: {components_str}");
+        let temp_component = if config.read_temperature {
+            if let Some(label) = config.temperature_sensor_label.as_ref() {
+                let c = components.iter().find(|c| c.label() == label).map(|c| c.label().to_string());
+                if c.is_none() {
+                    error!("Couldn't find the temperature component with label of {label}. Found components: {components_str}")
+                }
+                c
+            } else {
+                let c = Self::try_find_temp_component(&components);
+                if c.is_none() {
+                    warn!("Couldn't find the main temperature component. You can set one manually in sysinfo.temperature_sensor_label. Found components: {components_str}")
+                }
+                c
+            }
+        } else { None };
+
+        if let Some(c) = temp_component.as_ref() {
+            info!("Using {c} temperature component.");
+        } else {
+            info!("Temperature sensor disabled.");
+        }
+
         SysInfoModule {
             refresh_kind,
             sys: System::new_with_specifics(refresh_kind),
             previous_cpu_usage: None,
             previous_ram_total: None,
             previous_ram_used: None,
+            previous_temp: None,
+            temp_component,
         }
+    }
+
+    fn try_find_temp_component(components: &Components) -> Option<String> {
+        let tctl = components.iter().find(|c| c.label().ends_with(" Tctl"));
+        if let Some(tctl) = tctl { return Some(tctl.label().to_string()); }
+
+        let tccd1 = components.iter().find(|c| c.label().ends_with(" Tccd1"));
+        if let Some(tccd1) = tccd1 { return Some(tccd1.label().to_string()); }
+
+        None
     }
 }
 
@@ -36,7 +105,7 @@ impl Module for SysInfoModule {
     }
 
     fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> {
-        HashMap::from([
+        let mut h = HashMap::from([
             ("cpu-usage".into(), DiscoveryComponent {
                 unique_id: format!("orchard-{hostname}-cpu-usage"),
                 name: "CPU usage".into(),
@@ -87,7 +156,22 @@ impl Module for SysInfoModule {
                 icon: Some("mdi:memory".into()),
                 ..Default::default()
             }),
-        ])
+        ]);
+        if self.temp_component.is_some() {
+            h.insert("cpu-temp".into(), DiscoveryComponent {
+                unique_id: format!("orchard-{hostname}-cpu-temp"),
+                name: "CPU temperature".into(),
+                spec: SensorSpec {
+                    state_topic: format!("orchard/{hostname}/cpu/temp"),
+                    unit_of_measurement: Some("°C".into()),
+                    suggested_display_precision: Some(1),
+                    device_class: Some(SensorDeviceClass::Temperature),
+                    ..Default::default()
+                }.into(),
+                ..Default::default()
+            });
+        }
+        h
     }
 
     async fn update(&mut self, hostname: &str, mqttc: &AsyncClient) {
@@ -141,6 +225,26 @@ impl Module for SysInfoModule {
                 true,
                 ram_usage_percent.to_string(),
             ).await.unwrap();
+        }
+
+        if let Some(temp_component_label) = self.temp_component.as_ref() {
+            let components = Components::new_with_refreshed_list();
+            let temp_component = components.iter().find(|c| c.label() == temp_component_label);
+
+            if let Some(temp_component) = temp_component {
+                let temp = temp_component.temperature();
+
+                if self.previous_temp != temp {
+                    mqttc.publish(
+                        format!("orchard/{hostname}/cpu/temp"),
+                        QoS::AtMostOnce,
+                        true,
+                        temp.map_or_else(|| "".to_string(), |t| t.to_string())
+                    ).await.unwrap();
+                }
+            } else {
+                error!("Temperature component {temp_component_label} unavailable!");
+            }
         }
     }
 }
