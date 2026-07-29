@@ -24,15 +24,15 @@ pub struct DiscoveryPayload {
     pub device: DiscoveryDevice,
     #[short_name("o")]
     pub origin: DiscoveryOrigin,
-    #[short_name("avty_t")]
-    pub availability_topic: String,
+    #[short_name("avty")]
+    pub availability: Vec<Availability>,
     #[short_name("cmps")]
     pub components: HashMap<String, DiscoveryComponent>,
 }
 
 impl Scopeable for DiscoveryPayload {
     fn scope(mut self, scope: &MqttScope) -> Self {
-        self.availability_topic = scope.scope_topic(&self.availability_topic);
+        self.availability = self.availability.into_iter().map(|a| a.scope(scope)).collect();
         self.components = self.components.into_iter().map(|(k, v)| {
             let key = scope.scope_id(&k);
             let value = v.scope(scope);

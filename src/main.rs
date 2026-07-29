@@ -22,7 +22,7 @@ use tokio::time;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::util::SubscriberInitExt;
 use crate::config::Config;
-use crate::discovery::{DiscoveryPayload, DiscoveryDevice, DiscoveryOrigin};
+use crate::discovery::{DiscoveryPayload, DiscoveryDevice, DiscoveryOrigin, Availability};
 use crate::modules::media::MediaModule;
 use crate::modules::Module;
 use crate::modules::status::StatusModule;
@@ -161,7 +161,12 @@ async fn main() {
             name: env!("CARGO_PKG_NAME").into(),
             version: env!("CARGO_PKG_VERSION").into(),
         },
-        availability_topic: "status".into(),
+        availability: vec![
+            Availability {
+                topic: "status".into(),
+                ..Default::default()
+            },
+        ],
         components,
     };
 
@@ -216,9 +221,9 @@ async fn main() {
             _ = update_interval.tick() => {
                 join_all(
                     modules.iter_mut().map(async |m| {
-                        debug!("Starting update for {}", m.name());
+                        trace!("Starting update for {}", m.name());
                         m.update(&mqtt_scope).await;
-                        debug!("Finishing update for {}", m.name());
+                        trace!("Finishing update for {}", m.name());
                     })
                 ).await;
             }

@@ -6,6 +6,8 @@ use tracing::{info, warn};
 use crate::modules::media::MediaModule;
 use crate::modules::Module;
 use crate::modules::nvidia::NvidiaModule;
+#[cfg(feature = "obs")]
+use crate::modules::obs::{ObsModule, ObsModuleConfig};
 use crate::modules::status::StatusModule;
 use crate::modules::sysinfo::{SysInfoModule, SysInfoModuleConfig};
 use crate::modules::system_control::SystemControlModule;
@@ -95,6 +97,8 @@ pub enum ModuleConfig {
     Nvidia {
         device: u32,
     },
+    #[cfg(feature = "obs")]
+    Obs(ObsModuleConfig),
 }
 
 impl ModuleConfig {
@@ -109,6 +113,8 @@ impl ModuleConfig {
             ModuleConfig::SystemControl => Ok(Box::new(SystemControlModule::new())),
             ModuleConfig::SysInfo(config) => Ok(Box::new(SysInfoModule::new(config))),
             ModuleConfig::Nvidia { device } => Ok(Box::new(NvidiaModule::new(*device).map_err(|e| e.to_string())?)),
+            #[cfg(feature = "obs")]
+            ModuleConfig::Obs(config) => Ok(Box::new(ObsModule::new(config))),
         }
     }
 }

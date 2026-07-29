@@ -191,8 +191,6 @@ impl Module for MediaModule {
         let artists = metadata.as_ref().map_or("", |m| &m.artists);
         let duration_text = metadata.as_ref().map_or_else(|| "None".into(), |m| m.duration.map(|d| d.as_secs_f32().to_string()).unwrap_or_else(|| "None".into()));
 
-        debug!("Publishing media metadata.");
-
         mqtt.publish("media/title", title)
             .with_qos(QoS::AtMostOnce)
             .await

@@ -144,8 +144,6 @@ impl Module for VolumeModule {
     async fn update(&mut self, mqtt: &MqttScope) {
         let state = self.get_current_state();
 
-        debug!(?state, "Updating volume state.");
-
         mqtt.publish("mute", if state.muted { "ON" } else { "OFF" })
             .with_qos(QoS::AtMostOnce)
             .await
@@ -154,7 +152,5 @@ impl Module for VolumeModule {
             .with_qos(QoS::AtMostOnce)
             .await
             .unwrap();
-
-        debug!("Volume state updated.");
     }
 }
