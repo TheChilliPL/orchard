@@ -4,6 +4,8 @@ pub mod media;
 pub mod system_control;
 pub mod sysinfo;
 pub mod nvidia;
+#[cfg(feature = "obs")]
+pub mod obs;
 
 use std::collections::HashMap;
 use async_trait::async_trait;

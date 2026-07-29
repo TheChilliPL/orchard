@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
+default = ["obs"]
 long_json = []
+obs = ["dep:obws"]
 
 [dependencies]
 rumqttc = { version = "0.25.1", features = ["use-native-tls"] }
@@ -20,12 +22,14 @@ async-trait = "0.1.89"
 thiserror = "2.0.18"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+rand = "0.10.2"
 
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 toml = "1.1.2"
 serde_with = "3.19.0"
 strum = { version = "0.28.0", features = ["derive"] }
+humantime-serde = "1.1.1"
 
 dirs = "6.0.0"
 cfg-if = "1.0.4"
@@ -36,6 +40,8 @@ sysinfo = "0.39.5"
 nvml-wrapper = "0.12.1"
 
 openssl = "0.10.81"
+
+obws = { version = "0.15.0", features = ["tls", "events"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 mpris = "2.0.1"
