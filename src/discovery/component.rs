@@ -1,7 +1,7 @@
 use derive_more::with_trait::From;
 use orchard_macros::short_names;
 use serde::Serialize;
-use serde_with::skip_serializing_none;
+use serde_with::{skip_serializing_none, DeserializeFromStr, SerializeDisplay};
 
 use crate::prelude::*;
 
@@ -31,6 +31,45 @@ pub struct DiscoveryComponent {
     pub spec: ComponentSpec,
     #[serde(skip_serializing_if = "is_default")]
     pub assumed_state: bool,
+    #[short_name("avty")]
+    #[serde(skip_serializing_if = "is_default")]
+    pub availability: Vec<Availability>,
+    #[short_name("avty_mode")]
+    #[serde(skip_serializing_if = "is_default")]
+    pub availability_mode: AvailabilityMode,
+}
+
+#[skip_serializing_none]
+#[short_names]
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
+pub struct Availability {
+    #[short_name("t")]
+    pub topic: String,
+    #[short_name("pl_avail")]
+    pub payload_available: Option<String>,
+    #[short_name("pl_not_avail")]
+    pub payload_not_available: Option<String>,
+    #[short_name("val_tpl")]
+    pub value_template: Option<String>,
+}
+
+#[derive(
+    Default,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    SerializeDisplay,
+    DeserializeFromStr,
+    strum::Display,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
+pub enum AvailabilityMode {
+    #[default]
+    Latest,
+    All,
+    Any,
 }
 
 #[skip_serializing_none]

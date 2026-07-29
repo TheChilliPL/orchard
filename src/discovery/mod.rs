@@ -23,8 +23,8 @@ pub struct DiscoveryPayload {
     pub device: DiscoveryDevice,
     #[short_name("o")]
     pub origin: DiscoveryOrigin,
-    #[short_name("avty_t")]
-    pub availability_topic: String,
+    #[short_name("avty")]
+    pub availability: Vec<Availability>,
     #[short_name("cmps")]
     pub components: HashMap<String, DiscoveryComponent>,
 }
