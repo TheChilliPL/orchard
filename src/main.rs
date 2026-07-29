@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use clap::Parser;
+use futures::future::join_all;
 use mqtt::{MqttOptions, connect_mqtt, topic_matches};
 use prelude::*;
 use rumqttc::{Event, Packet, QoS};
@@ -201,9 +202,13 @@ async fn main() {
                 }
             }
             _ = update_interval.tick() => {
-                for module in modules.iter_mut() {
-                    module.update(hostname, &mqttc).await;
-                }
+                join_all(
+                    modules.iter_mut().map(async |m| {
+                        debug!("Starting update for {}", m.name());
+                        m.update(hostname, &mqttc).await;
+                        debug!("Finishing update for {}", m.name());
+                    })
+                ).await;
             }
         }
     }
