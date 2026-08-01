@@ -1,6 +1,7 @@
 use orchard_macros::short_names;
 use serde::Serialize;
 use serde_with::skip_serializing_none;
+use crate::mqtt::scope::{MqttScope, Scopeable};
 
 #[skip_serializing_none]
 #[short_names]
@@ -18,6 +19,16 @@ pub struct SwitchSpec {
     pub payload_off: String,
     #[short_name("pl_on")]
     pub payload_on: String,
+}
+
+impl Scopeable for SwitchSpec {
+    fn scope(mut self, scope: &MqttScope) -> Self {
+        if let Some(state_topic) = self.state_topic.as_mut() {
+            *state_topic = scope.scope_topic(state_topic);
+        }
+        self.command_topic = scope.scope_topic(&self.command_topic);
+        self
+    }
 }
 
 impl Default for SwitchSpec {

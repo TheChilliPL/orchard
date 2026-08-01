@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use async_trait::async_trait;
-use rumqttc::{AsyncClient, QoS};
+use rumqttc::QoS;
 use serde::Deserialize;
-use sysinfo::{Component, Components, CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System};
+use sysinfo::{Component, Components, CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 use tracing::{debug, error, info, warn};
 use crate::discovery::{DiscoveryComponent, SensorDeviceClass, SensorSpec};
+use crate::mqtt::scope::MqttScope;
 use crate::modules::Module;
 
 /// Function returning `true` to use with `#[serde(default = "return_true")]`.
@@ -36,10 +37,6 @@ impl Default for SysInfoModuleConfig {
 pub struct SysInfoModule {
     refresh_kind: RefreshKind,
     sys: System,
-    previous_cpu_usage: Option<f32>,
-    previous_ram_total: Option<u64>,
-    previous_ram_used: Option<u64>,
-    previous_temp: Option<f32>,
     temp_component: Option<String>,
 }
 
@@ -79,10 +76,6 @@ impl SysInfoModule {
         SysInfoModule {
             refresh_kind,
             sys: System::new_with_specifics(refresh_kind),
-            previous_cpu_usage: None,
-            previous_ram_total: None,
-            previous_ram_used: None,
-            previous_temp: None,
             temp_component,
         }
     }
@@ -104,13 +97,13 @@ impl Module for SysInfoModule {
         "System info module"
     }
 
-    fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> {
+    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
         let mut h = HashMap::from([
             ("cpu-usage".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-cpu-usage"),
+                unique_id: "cpu-usage".into(),
                 name: "CPU usage".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/cpu/usage"),
+                    state_topic: "cpu/usage".into(),
                     unit_of_measurement: Some("%".into()),
                     suggested_display_precision: Some(1),
                     ..Default::default()
@@ -119,10 +112,10 @@ impl Module for SysInfoModule {
                 ..Default::default()
             }),
             ("ram-total_mib".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-ram-total_mib"),
+                unique_id: "ram-total_mib".into(),
                 name: "RAM available".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/ram/total_mib"),
+                    state_topic: "ram/total_mib".into(),
                     unit_of_measurement: Some("MiB".into()),
                     suggested_display_precision: Some(0),
                     device_class: Some(SensorDeviceClass::DataSize),
@@ -132,10 +125,10 @@ impl Module for SysInfoModule {
                 ..Default::default()
             }),
             ("ram-usage_mib".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-ram-usage_mib"),
+                unique_id: "ram-usage_mib".into(),
                 name: "RAM usage".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/ram/usage_mib"),
+                    state_topic: "ram/usage_mib".into(),
                     unit_of_measurement: Some("MiB".into()),
                     suggested_display_precision: Some(0),
                     device_class: Some(SensorDeviceClass::DataSize),
@@ -145,10 +138,10 @@ impl Module for SysInfoModule {
                 ..Default::default()
             }),
             ("ram-usage_percent".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-ram-usage_percent"),
+                unique_id: "ram-usage_percent".into(),
                 name: "RAM usage (%)".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/ram/usage_percent"),
+                    state_topic: "ram/usage_percent".into(),
                     unit_of_measurement: Some("%".into()),
                     suggested_display_precision: Some(1),
                     ..Default::default()
@@ -159,10 +152,10 @@ impl Module for SysInfoModule {
         ]);
         if self.temp_component.is_some() {
             h.insert("cpu-temp".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-cpu-temp"),
+                unique_id: "cpu-temp".into(),
                 name: "CPU temperature".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/cpu/temp"),
+                    state_topic: "cpu/temp".into(),
                     unit_of_measurement: Some("°C".into()),
                     suggested_display_precision: Some(1),
                     device_class: Some(SensorDeviceClass::Temperature),
@@ -174,7 +167,7 @@ impl Module for SysInfoModule {
         h
     }
 
-    async fn update(&mut self, hostname: &str, mqttc: &AsyncClient) {
+    async fn update(&mut self, mqtt: &MqttScope) {
         self.sys.refresh_specifics(self.refresh_kind);
 
         let cpu_usage_percent = self.sys.global_cpu_usage();
@@ -184,48 +177,22 @@ impl Module for SysInfoModule {
         let ram_usage_mib = ram_usage_b as f64 / 1024.0 / 1024.0;
         let ram_usage_percent = ram_usage_mib / ram_total_mib * 100.0;
 
-        if self.previous_cpu_usage != Some(cpu_usage_percent) {
-            mqttc.publish(
-                format!("orchard/{hostname}/cpu/usage"),
-                QoS::AtMostOnce,
-                true,
-                cpu_usage_percent.to_string(),
-            ).await.unwrap();
-            self.previous_cpu_usage = Some(cpu_usage_percent);
-        }
-
-        let mut update_usage_percent = false;
-
-        if self.previous_ram_total != Some(ram_total_b) {
-            mqttc.publish(
-                format!("orchard/{hostname}/ram/total_mib"),
-                QoS::AtMostOnce,
-                true,
-                ram_total_mib.to_string(),
-            ).await.unwrap();
-            self.previous_ram_total = Some(ram_total_b);
-            update_usage_percent = true;
-        }
-
-        if self.previous_ram_used != Some(ram_usage_b) {
-            mqttc.publish(
-                format!("orchard/{hostname}/ram/usage_mib"),
-                QoS::AtMostOnce,
-                true,
-                ram_usage_mib.to_string(),
-            ).await.unwrap();
-            self.previous_ram_used = Some(ram_usage_b);
-            update_usage_percent = true;
-        }
-
-        if update_usage_percent {
-            mqttc.publish(
-                format!("orchard/{hostname}/ram/usage_percent"),
-                QoS::AtMostOnce,
-                true,
-                ram_usage_percent.to_string(),
-            ).await.unwrap();
-        }
+        mqtt.publish("cpu/usage", cpu_usage_percent.to_string())
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish("ram/total_mib", ram_total_mib.to_string())
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish("ram/usage_mib", ram_usage_mib.to_string())
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish("ram/usage_percent", ram_usage_percent.to_string())
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
 
         if let Some(temp_component_label) = self.temp_component.as_ref() {
             let components = Components::new_with_refreshed_list();
@@ -233,16 +200,13 @@ impl Module for SysInfoModule {
 
             if let Some(temp_component) = temp_component {
                 let temp = temp_component.temperature();
-
-                if self.previous_temp != temp {
-                    mqttc.publish(
-                        format!("orchard/{hostname}/cpu/temp"),
-                        QoS::AtMostOnce,
-                        true,
-                        temp.map_or_else(|| "".to_string(), |t| t.to_string())
-                    ).await.unwrap();
-                    self.previous_temp = temp;
-                }
+                mqtt.publish(
+                    "cpu/temp",
+                    temp.map_or_else(|| "".to_string(), |t| t.to_string()),
+                )
+                .with_qos(QoS::AtMostOnce)
+                .await
+                .unwrap();
             } else {
                 error!("Temperature component {temp_component_label} unavailable!");
             }

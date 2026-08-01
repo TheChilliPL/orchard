@@ -15,6 +15,7 @@ pub use component::*;
 pub use number::*;
 pub use sensor::*;
 pub use switch::*;
+use crate::mqtt::scope::{MqttScope, Scopeable};
 
 #[short_names]
 #[derive(Debug, Clone, Serialize)]
@@ -27,6 +28,18 @@ pub struct DiscoveryPayload {
     pub availability_topic: String,
     #[short_name("cmps")]
     pub components: HashMap<String, DiscoveryComponent>,
+}
+
+impl Scopeable for DiscoveryPayload {
+    fn scope(mut self, scope: &MqttScope) -> Self {
+        self.availability_topic = scope.scope_topic(&self.availability_topic);
+        self.components = self.components.into_iter().map(|(k, v)| {
+            let key = scope.scope_id(&k);
+            let value = v.scope(scope);
+            (key, value)
+        }).collect();
+        self
+    }
 }
 
 #[short_names]

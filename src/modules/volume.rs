@@ -3,15 +3,14 @@ use async_trait::async_trait;
 use rumqttc::QoS;
 use tracing::{debug, warn};
 use volumecontrol::AudioDevice;
-use crate::discovery::{ButtonSpec, DiscoveryComponent, NumberSpec, SensorSpec, SwitchSpec};
+use crate::discovery::{ButtonSpec, DiscoveryComponent, NumberSpec, SwitchSpec};
+use crate::mqtt::scope::MqttScope;
 use crate::modules::Module;
 
-pub struct VolumeModule {
-    last_state: Option<VolumeState>
-}
+pub struct VolumeModule;
 
 impl VolumeModule {
-    pub fn new() -> Self { Self { last_state: None } }
+    pub fn new() -> Self { Self }
 
     fn get_current_state(&self) -> VolumeState {
         let device = AudioDevice::from_default().unwrap();
@@ -37,25 +36,25 @@ impl Module for VolumeModule {
         "Volume Module"
     }
 
-    fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> {
+    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
         HashMap::from([
             ("mute".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-mute"),
+                unique_id: "mute".into(),
                 name: "Mute audio".into(),
                 spec: SwitchSpec {
-                    state_topic: Some(format!("orchard/{hostname}/mute")),
-                    command_topic: format!("orchard/{hostname}/mute/set"),
+                    state_topic: Some("mute".into()),
+                    command_topic: "mute/set".into(),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:volume-mute".into()),
                 ..Default::default()
             }),
             ("volume".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-volume"),
+                unique_id: "volume".into(),
                 name: "Volume".into(),
                 spec: NumberSpec {
-                    state_topic: Some(format!("orchard/{hostname}/volume")),
-                    command_topic: format!("orchard/{hostname}/volume/set"),
+                    state_topic: Some("volume".into()),
+                    command_topic: "volume/set".into(),
                     // step: 0.1,
                     unit_of_measurement: Some("%".into()),
                     ..Default::default()
@@ -64,20 +63,20 @@ impl Module for VolumeModule {
                 ..Default::default()
             }),
             ("volume_inc".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-volume-inc"),
+                unique_id: "volume-inc".into(),
                 name: "Increase volume".into(),
                 spec: ButtonSpec {
-                    command_topic: format!("orchard/{hostname}/volume/inc"),
+                    command_topic: "volume/inc".into(),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:volume-plus".into()),
                 ..Default::default()
             }),
             ("volume_dec".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-volume-dec"),
+                unique_id: "volume-dec".into(),
                 name: "Decrease volume".into(),
                 spec: ButtonSpec {
-                    command_topic: format!("orchard/{hostname}/volume/dec"),
+                    command_topic: "volume/dec".into(),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:volume-minus".into()),
@@ -86,39 +85,34 @@ impl Module for VolumeModule {
         ])
     }
 
-    fn subscriptions(&self, hostname: &str) -> Vec<String> {
+    fn subscriptions(&self) -> Vec<String> {
         vec![
-            format!("orchard/{hostname}/mute/set"),
-            format!("orchard/{hostname}/volume/set"),
-            format!("orchard/{hostname}/volume/inc"),
-            format!("orchard/{hostname}/volume/dec"),
+            "mute/set".into(),
+            "volume/set".into(),
+            "volume/inc".into(),
+            "volume/dec".into(),
         ]
     }
 
-    async fn init(&mut self, hostname: &str, mqttc: &rumqttc::AsyncClient) {
-        self.update(hostname, mqttc).await;
+    async fn init(&mut self, mqtt: &MqttScope) {
+        self.update(mqtt).await;
     }
 
-    async fn handle_message(&mut self, hostname: &str, mqttc: &rumqttc::AsyncClient, topic: &str, payload: &[u8]) {
-        let volume_topic = format!("orchard/{hostname}/volume/set");
-        let mute_topic = format!("orchard/{hostname}/mute/set");
-        let inc_topic = format!("orchard/{hostname}/volume/inc");
-        let dec_topic = format!("orchard/{hostname}/volume/dec");
-
+    async fn handle_message(&mut self, mqtt: &MqttScope, topic: &str, payload: &[u8]) {
         let Ok(payload) = std::str::from_utf8(payload) else {
             warn!(topic, "Ignoring non-UTF8 payload.");
             return;
         };
 
-        if topic == volume_topic {
+        if topic == "volume/set" {
             let Ok(volume) = payload.trim().parse::<u8>() else {
                 warn!(topic, payload, "Ignoring invalid volume payload.");
                 return;
             };
 
             AudioDevice::from_default().unwrap().set_vol(volume).unwrap();
-            self.update(hostname, mqttc).await;
-        } else if topic == mute_topic {
+            self.update(mqtt).await;
+        } else if topic == "mute/set" {
             let should_mute = match payload {
                 "ON" => true,
                 "OFF" => false,
@@ -129,34 +123,37 @@ impl Module for VolumeModule {
             };
 
             AudioDevice::from_default().unwrap().set_mute(should_mute).unwrap();
-            self.update(hostname, mqttc).await;
-        } else if topic == inc_topic {
+            self.update(mqtt).await;
+        } else if topic == "volume/inc" {
             {
                 let device = AudioDevice::from_default().unwrap();
                 let new_vol = (device.get_vol().unwrap() + 1).clamp(0, 100);
                 device.set_vol(new_vol).unwrap();
             }
-            self.update(hostname, mqttc).await;
-        } else if topic == dec_topic {
+            self.update(mqtt).await;
+        } else if topic == "volume/dec" {
             {
                 let device = AudioDevice::from_default().unwrap();
                 let new_vol = (device.get_vol().unwrap() - 1).clamp(0, 100);
                 device.set_vol(new_vol).unwrap();
             }
-            self.update(hostname, mqttc).await;
+            self.update(mqtt).await;
         }
     }
 
-    async fn update(&mut self, hostname: &str, mqttc: &rumqttc::AsyncClient) {
+    async fn update(&mut self, mqtt: &MqttScope) {
         let state = self.get_current_state();
-        if self.last_state.as_ref() == Some(&state) { return; }
 
         debug!(?state, "Updating volume state.");
 
-        mqttc.publish(format!("orchard/{hostname}/mute"), QoS::AtMostOnce, true, if state.muted { "ON" } else { "OFF" }).await.unwrap();
-        mqttc.publish(format!("orchard/{hostname}/volume"), QoS::AtMostOnce, true, state.volume.to_string()).await.unwrap();
-
-        self.last_state = Some(state);
+        mqtt.publish("mute", if state.muted { "ON" } else { "OFF" })
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish("volume", state.volume.to_string())
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
 
         debug!("Volume state updated.");
     }

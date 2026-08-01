@@ -1,9 +1,13 @@
+pub mod scope;
+
+use std::borrow::Cow;
 use crate::Cli;
 use crate::prelude::*;
 use gethostname::gethostname;
 use rumqttc::{AsyncClient, ClientError, ConnectionError, Event, EventLoop, LastWill, QoS, Transport};
 use std::fmt::{Debug, Formatter};
 use thiserror::Error;
+use crate::mqtt::scope::MqttScope;
 
 #[derive(Debug, Clone)]
 pub(crate) struct MqttOptions {

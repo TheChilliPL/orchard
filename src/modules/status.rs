@@ -1,9 +1,7 @@
 use std::collections::HashMap;
-use std::time::Duration;
 use async_trait::async_trait;
-use rumqttc::AsyncClient;
-use tokio::time::sleep;
 use crate::discovery::{DiscoveryComponent, SensorDeviceClass, SensorSpec};
+use crate::mqtt::scope::MqttScope;
 use crate::modules::Module;
 
 pub struct StatusModule;
@@ -18,13 +16,13 @@ impl Module for StatusModule {
         "Status Module"
     }
 
-    fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> {
+    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
         HashMap::from([
             ("status".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-status"),
+                unique_id: "status".into(),
                 name: "Status".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/status"),
+                    state_topic: "status".into(),
                     value_template: Some("{{value | capitalize}}".into()),
                     options: Some(vec!["Online".into()]),
                     device_class: Some(SensorDeviceClass::Enum),
@@ -36,7 +34,7 @@ impl Module for StatusModule {
         ])
     }
 
-    async fn init(&mut self, _hostname: &str, _mqttc: &rumqttc::AsyncClient) {
+    async fn init(&mut self, _mqtt: &MqttScope) {
         // Status is already published in main.rs for availability purposes,
         // so we don't have to do that again.
     }

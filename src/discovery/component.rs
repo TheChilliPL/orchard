@@ -2,7 +2,7 @@ use derive_more::with_trait::From;
 use orchard_macros::short_names;
 use serde::Serialize;
 use serde_with::skip_serializing_none;
-
+use crate::mqtt::scope::{MqttScope, Scopeable};
 use crate::prelude::*;
 
 use super::{ButtonSpec, NumberSpec, SensorSpec, SwitchSpec};
@@ -33,6 +33,17 @@ pub struct DiscoveryComponent {
     pub assumed_state: bool,
 }
 
+impl Scopeable for DiscoveryComponent {
+    fn scope(mut self, scope: &MqttScope) -> Self {
+        self.unique_id = scope.scope_id(&self.unique_id);
+        if let Some(json_attributes_topic) = self.json_attributes_topic.as_mut() {
+            *json_attributes_topic = scope.scope_topic(json_attributes_topic);
+        }
+        self.spec = self.spec.scope(scope);
+        self
+    }
+}
+
 #[skip_serializing_none]
 #[short_names("p", "platform")]
 #[derive(Debug, Clone, Serialize, From)]
@@ -46,4 +57,16 @@ pub enum ComponentSpec {
 
 impl Default for ComponentSpec {
     fn default() -> Self { ComponentSpec::Sensor(SensorSpec::default()) }
+}
+
+impl Scopeable for ComponentSpec {
+    fn scope(self, scope: &MqttScope) -> Self {
+        use ComponentSpec::*;
+        match self {
+            Sensor(s) => Sensor(s.scope(scope)),
+            Number(s) => Number(s.scope(scope)),
+            Switch(s) => Switch(s.scope(scope)),
+            Button(s) => Button(s.scope(scope)),
+        }
+    }
 }

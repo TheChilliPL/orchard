@@ -5,18 +5,14 @@ use crate::modules::Module;
 use nvml_wrapper::error::NvmlError;
 use nvml_wrapper::{Device, Nvml};
 use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
-use rumqttc::{AsyncClient, QoS};
+use rumqttc::QoS;
 use tracing::warn;
 use crate::discovery::{DiscoveryComponent, SensorDeviceClass, SensorSpec};
+use crate::mqtt::scope::MqttScope;
 
 pub struct NvidiaModule {
     nvml: Nvml,
     device_index: u32,
-    previous_gpu_usage: Option<u32>,
-    previous_vram_usage_mib: Option<f32>,
-    previous_vram_total_mib: Option<f32>,
-    previous_vram_usage_percent: Option<f32>,
-    previous_gpu_temp: Option<u32>,
 }
 
 impl NvidiaModule {
@@ -26,11 +22,6 @@ impl NvidiaModule {
         Ok(NvidiaModule {
             nvml,
             device_index,
-            previous_gpu_usage: None,
-            previous_vram_usage_mib: None,
-            previous_vram_total_mib: None,
-            previous_vram_usage_percent: None,
-            previous_gpu_temp: None,
         })
     }
 
@@ -45,13 +36,13 @@ impl Module for NvidiaModule {
         "Nvidia module"
     }
 
-    fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> {
+    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
         HashMap::from([
             ("nvidia-gpu_usage".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-nvidia-gpu_usage"),
+                unique_id: "nvidia-gpu_usage".into(),
                 name: "GPU usage".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/nvidia/gpu_usage"),
+                    state_topic: "nvidia/gpu_usage".into(),
                     unit_of_measurement: Some("%".into()),
                     suggested_display_precision: Some(0),
                     ..Default::default()
@@ -59,10 +50,10 @@ impl Module for NvidiaModule {
                 ..Default::default()
             }),
             ("nvidia-vram_usage_mib".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-nvidia-vram_usage_mib"),
+                unique_id: "nvidia-vram_usage_mib".into(),
                 name: "VRAM usage".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/nvidia/vram_usage_mib"),
+                    state_topic: "nvidia/vram_usage_mib".into(),
                     unit_of_measurement: Some("MiB".into()),
                     suggested_display_precision: Some(0),
                     device_class: Some(SensorDeviceClass::DataSize),
@@ -71,10 +62,10 @@ impl Module for NvidiaModule {
                 ..Default::default()
             }),
             ("nvidia-vram_total_mib".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-nvidia-vram_total_mib"),
+                unique_id: "nvidia-vram_total_mib".into(),
                 name: "VRAM total".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/nvidia/vram_total_mib"),
+                    state_topic: "nvidia/vram_total_mib".into(),
                     unit_of_measurement: Some("MiB".into()),
                     suggested_display_precision: Some(0),
                     device_class: Some(SensorDeviceClass::DataSize),
@@ -83,10 +74,10 @@ impl Module for NvidiaModule {
                 ..Default::default()
             }),
             ("nvidia-vram_usage_percent".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-nvidia-vram_usage_percent"),
+                unique_id: "nvidia-vram_usage_percent".into(),
                 name: "VRAM usage (%)".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/nvidia/vram_usage_percent"),
+                    state_topic: "nvidia/vram_usage_percent".into(),
                     unit_of_measurement: Some("%".into()),
                     suggested_display_precision: Some(1),
                     ..Default::default()
@@ -94,10 +85,10 @@ impl Module for NvidiaModule {
                 ..Default::default()
             }),
             ("nvidia-gpu_temp".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-nvidia-gpu_temp"),
+                unique_id: "nvidia-gpu_temp".into(),
                 name: "GPU temperature".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/nvidia/gpu_temp"),
+                    state_topic: "nvidia/gpu_temp".into(),
                     unit_of_measurement: Some("°C".into()),
                     device_class: Some(SensorDeviceClass::Temperature),
                     suggested_display_precision: Some(0),
@@ -108,7 +99,7 @@ impl Module for NvidiaModule {
         ])
     }
 
-    async fn update(&mut self, hostname: &str, mqttc: &AsyncClient) {
+    async fn update(&mut self, mqtt: &MqttScope) {
         let dev = self.device().unwrap();
 
         let mem_info = dev.memory_info().unwrap();
@@ -124,54 +115,28 @@ impl Module for NvidiaModule {
             warn!("Failed to read GPU temperature: {err}");
         }
 
-        if self.previous_gpu_usage != Some(gpu_usage) {
-            mqttc.publish(
-                format!("orchard/{hostname}/nvidia/gpu_usage"),
-                QoS::AtMostOnce,
-                true,
-                gpu_usage.to_string(),
-            ).await.unwrap();
-            self.previous_gpu_usage = Some(gpu_usage);
-        }
-
-        if self.previous_vram_usage_mib != Some(vram_usage_mib) {
-            mqttc.publish(
-                format!("orchard/{hostname}/nvidia/vram_usage_mib"),
-                QoS::AtMostOnce,
-                true,
-                vram_usage_mib.to_string(),
-            ).await.unwrap();
-            self.previous_vram_usage_mib = Some(vram_usage_mib);
-        }
-
-        if self.previous_vram_total_mib != Some(vram_total_mib) {
-            mqttc.publish(
-                format!("orchard/{hostname}/nvidia/vram_total_mib"),
-                QoS::AtMostOnce,
-                true,
-                vram_total_mib.to_string(),
-            ).await.unwrap();
-            self.previous_vram_total_mib = Some(vram_total_mib);
-        }
-
-        if self.previous_vram_usage_percent != Some(vram_usage_percent) {
-            mqttc.publish(
-                format!("orchard/{hostname}/nvidia/vram_usage_percent"),
-                QoS::AtMostOnce,
-                true,
-                vram_usage_percent.to_string(),
-            ).await.unwrap();
-            self.previous_vram_usage_percent = Some(vram_usage_percent);
-        }
-
-        if self.previous_gpu_temp != gpu_temp.as_ref().ok().copied() {
-            mqttc.publish(
-                format!("orchard/{hostname}/nvidia/gpu_temp"),
-                QoS::AtMostOnce,
-                true,
-                gpu_temp.as_ref().ok().map_or_else(|| "".to_string(), |it| it.to_string()),
-            ).await.unwrap();
-            self.previous_gpu_temp = gpu_temp.ok();
-        }
+        mqtt.publish("nvidia/gpu_usage", gpu_usage.to_string())
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish("nvidia/vram_usage_mib", vram_usage_mib.to_string())
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish("nvidia/vram_total_mib", vram_total_mib.to_string())
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish("nvidia/vram_usage_percent", vram_usage_percent.to_string())
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish(
+            "nvidia/gpu_temp",
+            gpu_temp.as_ref().ok().map_or_else(|| "".to_string(), |it| it.to_string()),
+        )
+        .with_qos(QoS::AtMostOnce)
+        .await
+        .unwrap();
     }
 }

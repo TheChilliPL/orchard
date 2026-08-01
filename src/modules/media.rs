@@ -1,25 +1,18 @@
 #![cfg(target_os = "linux")]
 
-use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::fmt::format;
-use std::sync::Mutex;
 use std::time::Duration;
 use async_trait::async_trait;
-use rumqttc::{AsyncClient, QoS};
+use rumqttc::QoS;
 use tracing::{debug, trace, warn};
 use crate::discovery::{ButtonSpec, DiscoveryComponent, SensorDeviceClass, SensorSpec};
+use crate::mqtt::scope::MqttScope;
 use crate::modules::Module;
 
-#[derive(Default)]
-pub struct MediaModule {
-    last_metadata: Option<MediaMetadata>,
-    last_status: Option<MediaStatus>,
-    force_update: bool,
-}
+pub struct MediaModule;
 
 impl MediaModule {
-    pub fn new() -> Self { Default::default() }
+    pub fn new() -> Self { Self }
 
     fn active_player(&self) -> Option<mpris::Player> {
         let player_finder = mpris::PlayerFinder::new().ok();
@@ -33,43 +26,43 @@ impl Module for MediaModule {
         "Media control module"
     }
 
-    fn discovery_components(&self, hostname: &str) -> HashMap<String, DiscoveryComponent> {
+    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
         HashMap::from([
             ("media_toggle".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-media_play_pause"),
+                unique_id: "media_play_pause".into(),
                 name: "Play/pause".into(),
                 spec: ButtonSpec {
-                    command_topic: format!("orchard/{hostname}/media/toggle"),
+                    command_topic: "media/toggle".into(),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:play-pause".to_string()),
                 ..Default::default()
             }),
             ("media_prev".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-media_prev"),
+                unique_id: "media_prev".into(),
                 name: "Previous".into(),
                 spec: ButtonSpec {
-                    command_topic: format!("orchard/{hostname}/media/prev"),
+                    command_topic: "media/prev".into(),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:skip-previous".into()),
                 ..Default::default()
             }),
             ("media_next".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-media_next"),
+                unique_id: "media_next".into(),
                 name: "Next".into(),
                 spec: ButtonSpec {
-                    command_topic: format!("orchard/{hostname}/media/next"),
+                    command_topic: "media/next".into(),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:skip-next".into()),
                 ..Default::default()
             }),
             ("media_status".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-media_status"),
+                unique_id: "media_status".into(),
                 name: "Media status".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/media/status"),
+                    state_topic: "media/status".into(),
                     device_class: Some(SensorDeviceClass::Enum),
                     options: Some(vec!["Playing".into(), "Paused".into(), "Stopped".into()]),
                     value_template: Some("{{value | capitalize}}".into()),
@@ -79,30 +72,30 @@ impl Module for MediaModule {
                 ..Default::default()
             }),
             ("media_title".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-media_title"),
+                unique_id: "media_title".into(),
                 name: "Media title".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/media/title"),
+                    state_topic: "media/title".into(),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:music-note".into()),
                 ..Default::default()
             }),
             ("media_artists".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-media_artists"),
+                unique_id: "media_artists".into(),
                 name: "Media artists".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/media/artists"),
+                    state_topic: "media/artists".into(),
                     ..Default::default()
                 }.into(),
                 icon: Some("mdi:account".into()),
                 ..Default::default()
             }),
             ("media_position".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-media_position"),
+                unique_id: "media_position".into(),
                 name: "Media position".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/media/position"),
+                    state_topic: "media/position".into(),
                     device_class: Some(SensorDeviceClass::Duration),
                     unit_of_measurement: Some("s".into()),
                     ..Default::default()
@@ -110,10 +103,10 @@ impl Module for MediaModule {
                 ..Default::default()
             }),
             ("media_duration".into(), DiscoveryComponent {
-                unique_id: format!("orchard-{hostname}-media_duration"),
+                unique_id: "media_duration".into(),
                 name: "Media duration".into(),
                 spec: SensorSpec {
-                    state_topic: format!("orchard/{hostname}/media/duration"),
+                    state_topic: "media/duration".into(),
                     device_class: Some(SensorDeviceClass::Duration),
                     unit_of_measurement: Some("s".into()),
                     ..Default::default()
@@ -124,40 +117,39 @@ impl Module for MediaModule {
         ])
     }
 
-    fn subscriptions(&self, hostname: &str) -> Vec<String> {
+    fn subscriptions(&self) -> Vec<String> {
         vec![
-            format!("orchard/{hostname}/media/toggle"),
-            format!("orchard/{hostname}/media/prev"),
-            format!("orchard/{hostname}/media/next"),
-            format!("orchard/{hostname}/media/position/set"), // TODO implement
+            "media/toggle".into(),
+            "media/prev".into(),
+            "media/next".into(),
+            "media/position/set".into(), // TODO implement
         ]
     }
 
-    async fn init(&mut self, hostname: &str, mqttc: &AsyncClient) {
-        self.force_update = true;
-        self.update(hostname, mqttc).await;
+    async fn init(&mut self, mqtt: &MqttScope) {
+        self.update(mqtt).await;
     }
 
-    async fn handle_message(&mut self, hostname: &str, mqttc: &AsyncClient, topic: &str, payload: &[u8]) {
+    async fn handle_message(&mut self, mqtt: &MqttScope, topic: &str, payload: &[u8]) {
         let Ok(payload) = std::str::from_utf8(payload) else {
             warn!(topic, "Ignoring non-UTF8 payload.");
             return;
         };
 
-        if topic == format!("orchard/{hostname}/media/toggle") {
+        if topic == "media/toggle" {
             self.active_player().map(|p| p.play_pause());
-        } else if topic == format!("orchard/{hostname}/media/prev") {
+        } else if topic == "media/prev" {
             self.active_player().map(|p| p.previous());
-        } else if topic == format!("orchard/{hostname}/media/next") {
+        } else if topic == "media/next" {
             self.active_player().map(|p| p.next());
         } else {
             warn!(topic, ?payload, "Ignoring unknown topic.");
         }
 
-        self.update(hostname, mqttc).await;
+        self.update(mqtt).await;
     }
 
-    async fn update(&mut self, hostname: &str, mqttc: &AsyncClient) {
+    async fn update(&mut self, mqtt: &MqttScope) {
         let (status, metadata) = {
             let player = self.active_player();
 
@@ -174,40 +166,45 @@ impl Module for MediaModule {
             (status, metadata)
         };
 
-        if status != self.last_status || self.force_update {
-            let status_text = match status {
-                Some(MediaStatus { playing, .. }) => if playing { "Playing" } else { "Paused" },
-                None => "Stopped",
-            };
+        let status_text = match status {
+            Some(MediaStatus { playing, .. }) => if playing { "Playing" } else { "Paused" },
+            None => "Stopped",
+        };
 
-            let position_text = match status {
-                Some(MediaStatus { position, .. }) => position.map(|p| p.as_secs_f32().to_string()).unwrap_or_else(|| "None".into()),
-                None => "None".into(),
-            };
+        let position_text = match status {
+            Some(MediaStatus { position, .. }) => position.map(|p| p.as_secs_f32().to_string()).unwrap_or_else(|| "None".into()),
+            None => "None".into(),
+        };
 
-            trace!("Publishing media status.");
+        trace!("Publishing media status.");
 
-            mqttc.publish(format!("orchard/{hostname}/media/status"), QoS::AtMostOnce, true, status_text).await.unwrap();
-            mqttc.publish(format!("orchard/{hostname}/media/position"), QoS::AtMostOnce, true, position_text).await.unwrap();
+        mqtt.publish("media/status", status_text)
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish("media/position", position_text)
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
 
-            self.last_status = status;
-        }
+        let title = metadata.as_ref().map_or("", |m| &m.title);
+        let artists = metadata.as_ref().map_or("", |m| &m.artists);
+        let duration_text = metadata.as_ref().map_or_else(|| "None".into(), |m| m.duration.map(|d| d.as_secs_f32().to_string()).unwrap_or_else(|| "None".into()));
 
-        if metadata != self.last_metadata || self.force_update {
-            let title = metadata.as_ref().map_or("", |m| &m.title);
-            let artists = metadata.as_ref().map_or("", |m| &m.artists);
-            let duration_text = metadata.as_ref().map_or_else(|| "None".into(), |m| m.duration.map(|d| d.as_secs_f32().to_string()).unwrap_or_else(|| "None".into()));
+        debug!("Publishing media metadata.");
 
-            debug!("Publishing media metadata.");
-
-            mqttc.publish(format!("orchard/{hostname}/media/title"), QoS::AtMostOnce, true, title).await.unwrap();
-            mqttc.publish(format!("orchard/{hostname}/media/artists"), QoS::AtMostOnce, true, artists).await.unwrap();
-            mqttc.publish(format!("orchard/{hostname}/media/duration"), QoS::AtMostOnce, true, duration_text).await.unwrap();
-
-            self.last_metadata = metadata;
-        }
-
-        self.force_update = false;
+        mqtt.publish("media/title", title)
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish("media/artists", artists)
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
+        mqtt.publish("media/duration", duration_text)
+            .with_qos(QoS::AtMostOnce)
+            .await
+            .unwrap();
     }
 }
 

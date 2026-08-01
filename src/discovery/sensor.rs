@@ -1,6 +1,7 @@
 use orchard_macros::short_names;
 use serde::Serialize;
 use serde_with::{DeserializeFromStr, SerializeDisplay, skip_serializing_none};
+use crate::mqtt::scope::{MqttScope, Scopeable};
 
 #[skip_serializing_none]
 #[short_names]
@@ -18,6 +19,13 @@ pub struct SensorSpec {
     pub suggested_display_precision: Option<i32>,
     #[short_name("unit_of_meas")]
     pub unit_of_measurement: Option<String>,
+}
+
+impl Scopeable for SensorSpec {
+    fn scope(mut self, scope: &MqttScope) -> Self {
+        self.state_topic = scope.scope_topic(&self.state_topic);
+        self
+    }
 }
 
 #[derive(

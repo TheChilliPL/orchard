@@ -1,3 +1,6 @@
+#![feature(impl_trait_in_assoc_type)]
+#![feature(debug_closure_helpers)]
+
 mod prelude;
 mod mqtt;
 mod discovery;
@@ -7,6 +10,7 @@ pub mod config;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::thread::scope;
 use std::time::Duration;
 use clap::Parser;
 use futures::future::join_all;
@@ -25,6 +29,7 @@ use crate::modules::status::StatusModule;
 use crate::modules::sysinfo::SysInfoModule;
 use crate::modules::system_control::SystemControlModule;
 use crate::modules::volume::VolumeModule;
+use crate::mqtt::scope::{ClientExt, Scopeable};
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -77,7 +82,7 @@ async fn main() {
     let ref hostname = opts.hostname.clone();
 
     info!(?opts, "Orchard daemon starting!");
-    let (mqttc, mut event_loop) = connect_mqtt(opts).await.expect("MQTT connection failed");
+    let (mqtt_client, mut event_loop) = connect_mqtt(opts).await.expect("MQTT connection failed");
     info!("MQTT connection established!");
 
     let (publish_tx, mut publish_rx) = mpsc::channel::<(String, Vec<u8>)>(32);
@@ -99,7 +104,7 @@ async fn main() {
                     }
                 }
                 Ok(Event::Outgoing(packet)) => {
-                    trace!(?packet, "Outgoing packet.");
+                    // trace!(?packet, "Outgoing packet.");
                 }
                 Err(err) => {
                     error!(error = ?err, "MQTT event loop failed.");
@@ -108,6 +113,8 @@ async fn main() {
             }
         }
     });
+
+    let mqtt_scope = mqtt_client.scope(format!("orchard/{hostname}"));
 
     let mut components = HashMap::with_capacity(32);
     let mut subscriptions: Vec<(String, usize)> = Vec::with_capacity(32);
@@ -124,13 +131,13 @@ async fn main() {
     for (module_idx, module) in modules.iter().enumerate() {
         info!("Preparing module: {}.", module.name());
 
-        let discovery_components = module.discovery_components(hostname);
+        let discovery_components = module.discovery_components();
         if !discovery_components.is_empty() {
             trace!(?discovery_components, "Module {} added discovery components.", module.name());
             components.extend(discovery_components);
         }
 
-        let module_subscriptions = module.subscriptions(hostname);
+        let module_subscriptions = module.subscriptions();
         if !module_subscriptions.is_empty() {
             trace!(subscriptions = ?module_subscriptions, "Module {} added subscriptions.", module.name());
             subscriptions.extend(
@@ -142,7 +149,7 @@ async fn main() {
     }
 
     for topic in subscriptions.iter().map(|(topic, _)| topic).collect::<std::collections::HashSet<_>>() {
-        mqttc.subscribe(topic, QoS::AtLeastOnce).await.unwrap();
+        mqtt_client.subscribe(mqtt_scope.scope_topic(topic), QoS::AtLeastOnce).await.unwrap();
     }
 
     let discovery = DiscoveryPayload {
@@ -154,15 +161,15 @@ async fn main() {
             name: env!("CARGO_PKG_NAME").into(),
             version: env!("CARGO_PKG_VERSION").into(),
         },
-        availability_topic: format!("orchard/{hostname}/status"),
+        availability_topic: "status".into(),
         components,
     };
 
+    let discovery = discovery.scope(&mqtt_scope);
+
     let discovery_topic = format!("homeassistant/device/orchard/{hostname}/config");
 
-    trace!(topic = discovery_topic, payload = ?discovery, "Sending discovery payload.");
-
-    mqttc.publish(
+    mqtt_client.publish(
         discovery_topic,
         QoS::AtLeastOnce,
         true,
@@ -171,7 +178,7 @@ async fn main() {
 
     for module in modules.iter_mut() {
         debug!("Initializing module: {}", module.name());
-        module.init(hostname, &mqttc).await;
+        module.init(&mqtt_scope).await;
     }
 
     let mut update_interval = time::interval(Duration::from_secs(1));
@@ -186,6 +193,11 @@ async fn main() {
                     break;
                 };
 
+                let Some(topic) = mqtt_scope.unscope_topic(&topic) else {
+                    warn!("Couldn't unscope received event topic: {}", topic);
+                    continue;
+                };
+
                 let mut module_idxs = subscriptions
                     .iter()
                     .filter_map(|(topic_filter, module_idx)| {
@@ -197,7 +209,7 @@ async fn main() {
 
                 for module_idx in module_idxs {
                     modules[module_idx]
-                        .handle_message(hostname, &mqttc, &topic, &payload)
+                        .handle_message(&mqtt_scope, &topic, &payload)
                         .await;
                 }
             }
@@ -205,7 +217,7 @@ async fn main() {
                 join_all(
                     modules.iter_mut().map(async |m| {
                         debug!("Starting update for {}", m.name());
-                        m.update(hostname, &mqttc).await;
+                        m.update(&mqtt_scope).await;
                         debug!("Finishing update for {}", m.name());
                     })
                 ).await;

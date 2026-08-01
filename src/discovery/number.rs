@@ -1,6 +1,7 @@
 use orchard_macros::short_names;
 use serde::Serialize;
 use serde_with::skip_serializing_none;
+use crate::mqtt::scope::{MqttScope, Scopeable};
 
 #[skip_serializing_none]
 #[short_names]
@@ -19,6 +20,16 @@ pub struct NumberSpec {
     pub step: f32,
     #[short_name("unit_of_meas")]
     pub unit_of_measurement: Option<String>,
+}
+
+impl Scopeable for NumberSpec {
+    fn scope(mut self, scope: &MqttScope) -> Self {
+        if let Some(state_topic) = self.state_topic.as_mut() {
+            *state_topic = scope.scope_topic(state_topic);
+        }
+        self.command_topic = scope.scope_topic(&self.command_topic);
+        self
+    }
 }
 
 impl Default for NumberSpec {
