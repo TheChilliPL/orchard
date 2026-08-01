@@ -61,6 +61,8 @@ pub struct DiscoveryOrigin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mqtt::scope::{ClientExt, Scopeable};
+    use rumqttc::MqttOptions;
     use serde_json::json;
 
     #[test]

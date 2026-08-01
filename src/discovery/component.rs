@@ -13,6 +13,8 @@ use super::{ButtonSpec, NumberSpec, SensorSpec, SwitchSpec};
 pub struct DiscoveryComponent {
     #[short_name("uniq_id")]
     pub unique_id: String,
+    #[short_name("def_ent_id")]
+    pub default_entity_id: Option<String>,
     pub name: String,
     #[short_name("ic")]
     pub icon: Option<String>,
@@ -35,6 +37,22 @@ pub struct DiscoveryComponent {
 
 impl Scopeable for DiscoveryComponent {
     fn scope(mut self, scope: &MqttScope) -> Self {
+        let entity_domain = match self.spec {
+            ComponentSpec::Sensor(_) => "sensor",
+            ComponentSpec::Number(_) => "number",
+            ComponentSpec::Switch(_) => "switch",
+            ComponentSpec::Button(_) => "button",
+        };
+        let raw_entity_id = self
+            .default_entity_id
+            .take()
+            .unwrap_or_else(|| self.unique_id.clone());
+        let entity_id_tail = raw_entity_id
+            .split_once('.')
+            .map(|(_, tail)| tail)
+            .unwrap_or(&raw_entity_id);
+        let scoped_entity_id_tail = scope.scope_id(entity_id_tail);
+        self.default_entity_id = Some(format!("{entity_domain}.{scoped_entity_id_tail}"));
         self.unique_id = scope.scope_id(&self.unique_id);
         if let Some(json_attributes_topic) = self.json_attributes_topic.as_mut() {
             *json_attributes_topic = scope.scope_topic(json_attributes_topic);
