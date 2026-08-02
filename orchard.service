@@ -1,0 +1,14 @@
+[Unit]
+Description=MQTT daemon
+After=network.target
+Wants=network-online.target
+
+[Service]
+Restart=always
+Type=exec
+WorkingDirectory=%Y
+ExecStart=cargo run --release
+Environment='RUST_LOG=info,orchard=debug'
+
+[Install]
+WantedBy=default.target
