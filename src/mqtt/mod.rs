@@ -103,6 +103,11 @@ pub(crate) async fn connect_mqtt(
         rumqttc_opts.set_transport(Transport::tls_with_default_config());
     }
 
+    rumqttc_opts.set_max_packet_size(
+        100 * 1024,
+        100 * 1024,
+    );
+
     rumqttc_opts.set_last_will(LastWill::new(
         status_topic.clone(),
         "offline",

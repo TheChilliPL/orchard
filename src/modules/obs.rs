@@ -19,13 +19,17 @@
 ///     - `start` — Starts recording.
 ///     - `pause` — Pauses recording.
 ///     - `resume` — Resumes recording.
+///     - `toggle_pause` — Pauses or resumes recording.
 ///     - `stop` — Stops recording.
+///     - `toggle` — Toggles recording.
 /// - `obs/streaming/command` — Topic for streaming controls.
 ///     - `start` — Starts streaming.
 ///     - `stop` — Stops streaming.
+///     - `toggle` — Toggles streaming.
 /// - `obs/virtual_cam/command` — Topic for virtual camera controls.
 ///     - `start` — Starts virtual camera.
 ///     - `stop` — Stops virtual camera.
+///     - `toggle` — Toggles virtual camera.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -39,7 +43,7 @@ use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tracing::{debug, error, trace, warn};
-use crate::discovery::{Availability, AvailabilityMode, DiscoveryComponent, SensorDeviceClass, SensorSpec};
+use crate::discovery::{Availability, AvailabilityMode, ButtonSpec, DiscoveryComponent, SensorDeviceClass, SensorSpec};
 use crate::mqtt::scope::MqttScope;
 use crate::modules::Module;
 use crate::utils::exponential_backoff::{ExponentialBackoff, ExponentialBackoffConfig};
@@ -275,6 +279,179 @@ impl Module for ObsModule {
                 icon: Some("mdi:broadcast".into()),
                 ..Default::default()
             }),
+            ("virtual_cam".into(), DiscoveryComponent {
+                unique_id: "obs-virtual_cam".into(),
+                name: "OBS Virtual cam state".into(),
+                spec: SensorSpec {
+                    state_topic: "obs/virtual_cam".into(),
+                    device_class: Some(SensorDeviceClass::Enum),
+                    options: Some(vec![
+                        "Active".to_string(),
+                        "Stopped".to_string(),
+                    ]),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:fit-to-screen".into()),
+                ..Default::default()
+            }),
+            ("recording-start".into(), DiscoveryComponent {
+                unique_id: "obs-recording-start".into(),
+                name: "Start OBS recording".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/recording/command".into(),
+                    payload_press: "start".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:record-rec".into()),
+                ..Default::default()
+            }),
+            ("recording-pause".into(), DiscoveryComponent {
+                unique_id: "obs-recording-pause".into(),
+                name: "Pause OBS recording".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/recording/command".into(),
+                    payload_press: "pause".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:pause".into()),
+                ..Default::default()
+            }),
+            ("recording-resume".into(), DiscoveryComponent {
+                unique_id: "obs-recording-resume".into(),
+                name: "Resume OBS recording".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/recording/command".into(),
+                    payload_press: "resume".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:play".into()),
+                ..Default::default()
+            }),
+            ("recording-toggle_pause".into(), DiscoveryComponent {
+                unique_id: "obs-recording-toggle_pause".into(),
+                name: "Pause/resume OBS recording".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/recording/command".into(),
+                    payload_press: "toggle_pause".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:play-pause".into()),
+                ..Default::default()
+            }),
+            ("recording-stop".into(), DiscoveryComponent {
+                unique_id: "obs-recording-stop".into(),
+                name: "Stop OBS recording".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/recording/command".into(),
+                    payload_press: "stop".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:stop".into()),
+                ..Default::default()
+            }),
+            ("recording-toggle".into(), DiscoveryComponent {
+                unique_id: "obs-recording-toggle".into(),
+                name: "Toggle OBS recording".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/recording/command".into(),
+                    payload_press: "toggle".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:record-rec".into()),
+                ..Default::default()
+            }),
+            ("streaming-start".into(), DiscoveryComponent {
+                unique_id: "obs-streaming-start".into(),
+                name: "Start OBS streaming".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/streaming/command".into(),
+                    payload_press: "start".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:broadcast".into()),
+                ..Default::default()
+            }),
+            ("streaming-stop".into(), DiscoveryComponent {
+                unique_id: "obs-streaming-stop".into(),
+                name: "Stop OBS streaming".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/streaming/command".into(),
+                    payload_press: "stop".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:stop".into()),
+                ..Default::default()
+            }),
+            ("streaming-toggle".into(), DiscoveryComponent {
+                unique_id: "obs-streaming-toggle".into(),
+                name: "Toggle OBS streaming".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/streaming/command".into(),
+                    payload_press: "toggle".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:broadcast".into()),
+                ..Default::default()
+            }),
+            ("virtual_cam-start".into(), DiscoveryComponent {
+                unique_id: "obs-virtual_cam-start".into(),
+                name: "Start OBS virtual cam".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/virtual_cam/command".into(),
+                    payload_press: "start".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:fit-to-screen".into()),
+                ..Default::default()
+            }),
+            ("virtual_cam-stop".into(), DiscoveryComponent {
+                unique_id: "obs-virtual_cam-stop".into(),
+                name: "Stop OBS virtual cam".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/virtual_cam/command".into(),
+                    payload_press: "stop".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:stop".into()),
+                ..Default::default()
+            }),
+            ("virtual_cam-toggle".into(), DiscoveryComponent {
+                unique_id: "obs-virtual_cam-toggle".into(),
+                name: "Toggle OBS virtual cam".into(),
+                spec: ButtonSpec {
+                    command_topic: "obs/virtual_cam/command".into(),
+                    payload_press: "toggle".into(),
+                    ..Default::default()
+                }.into(),
+                availability: availability.clone(),
+                availability_mode: AvailabilityMode::All,
+                icon: Some("mdi:fit-to-screen".into()),
+                ..Default::default()
+            }),
         ])
     }
 
@@ -310,18 +487,22 @@ impl Module for ObsModule {
                 "start" => _ = client.recording().start().await,
                 "pause" => _ = client.recording().pause().await,
                 "resume" => _ = client.recording().resume().await,
+                "toggle_pause" => _ = client.recording().toggle_pause().await,
                 "stop" => _ = client.recording().stop().await,
+                "toggle" => _ = client.recording().toggle().await,
                 _other => warn!("Unrecognized recording command: {_other}."),
             },
             "obs/streaming/command" => match payload {
                 "start" => _ = client.streaming().start().await,
                 "stop" => _ = client.streaming().stop().await,
-                _other => warn!("Unrecognized recording command: {_other}."),
+                "toggle" => _ = client.streaming().toggle().await,
+                _other => warn!("Unrecognized streaming command: {_other}."),
             },
             "obs/virtual_cam/command" => match payload {
                 "start" => _ = client.virtual_cam().start().await,
                 "stop" => _ = client.virtual_cam().stop().await,
-                _other => warn!("Unrecognized recording command: {_other}."),
+                "toggle" => _ = client.virtual_cam().toggle().await,
+                _other => warn!("Unrecognized virtual camera command: {_other}."),
             },
             _other => warn!("Unrecognized command topic: {_other}."),
         }
