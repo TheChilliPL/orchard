@@ -17,8 +17,8 @@ impl Module for SystemControlModule {
         "System control module"
     }
 
-    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
-        HashMap::from([
+    fn discovery_components(&self) -> eyre::Result<HashMap<String, DiscoveryComponent>> {
+        Ok(HashMap::from([
             ("shutdown".into(), DiscoveryComponent {
                 unique_id: "shutdown".into(),
                 name: "Shutdown".into(),
@@ -39,17 +39,17 @@ impl Module for SystemControlModule {
                 icon: Some("mdi:refresh".into()),
                 ..Default::default()
             }),
+        ]))
+    }
+
+    fn subscriptions(&self) -> eyre::Result<Vec<String>> {
+        Ok(vec![
+            "shutdown".into(),
+            "reboot".into(),
         ])
     }
 
-    fn subscriptions(&self) -> Vec<String> {
-        vec![
-            "shutdown".into(),
-            "reboot".into(),
-        ]
-    }
-
-    async fn handle_message(&mut self, _mqtt: &MqttScope, topic: &str, _payload: &[u8]) {
+    async fn handle_message(&mut self, _mqtt: &MqttScope, topic: &str, _payload: &[u8]) -> eyre::Result<()> {
         if topic == "shutdown" {
             let res = system_shutdown::shutdown();
             if let Err(error) = res {
@@ -61,5 +61,6 @@ impl Module for SystemControlModule {
                 error!(?error, "Failed to reboot system.");
             }
         }
+        Ok(())
     }
 }

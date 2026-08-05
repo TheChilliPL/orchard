@@ -12,15 +12,15 @@ pub struct VolumeModule;
 impl VolumeModule {
     pub fn new() -> Self { Self }
 
-    fn get_current_state(&self) -> VolumeState {
-        let device = AudioDevice::from_default().unwrap();
-        let muted = device.is_mute().unwrap();
-        let volume = device.get_vol().unwrap();
+    fn get_current_state(&self) -> eyre::Result<VolumeState> {
+        let device = AudioDevice::from_default()?;
+        let muted = device.is_mute()?;
+        let volume = device.get_vol()?;
 
-        VolumeState {
+        Ok(VolumeState {
             volume,
             muted,
-        }
+        })
     }
 }
 
@@ -36,8 +36,8 @@ impl Module for VolumeModule {
         "Volume Module"
     }
 
-    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
-        HashMap::from([
+    fn discovery_components(&self) -> eyre::Result<HashMap<String, DiscoveryComponent>> {
+        Ok(HashMap::from([
             ("mute".into(), DiscoveryComponent {
                 unique_id: "mute".into(),
                 name: "Mute audio".into(),
@@ -82,75 +82,78 @@ impl Module for VolumeModule {
                 icon: Some("mdi:volume-minus".into()),
                 ..Default::default()
             }),
-        ])
+        ]))
     }
 
-    fn subscriptions(&self) -> Vec<String> {
-        vec![
+    fn subscriptions(&self) -> eyre::Result<Vec<String>> {
+        Ok(vec![
             "mute/set".into(),
             "volume/set".into(),
             "volume/inc".into(),
             "volume/dec".into(),
-        ]
+        ])
     }
 
-    async fn init(&mut self, mqtt: &MqttScope) {
-        self.update(mqtt).await;
+    async fn init(&mut self, mqtt: &MqttScope) -> eyre::Result<()> {
+        self.update(mqtt).await?;
+        Ok(())
     }
 
-    async fn handle_message(&mut self, mqtt: &MqttScope, topic: &str, payload: &[u8]) {
+    async fn handle_message(&mut self, mqtt: &MqttScope, topic: &str, payload: &[u8]) -> eyre::Result<()> {
         let Ok(payload) = std::str::from_utf8(payload) else {
             warn!(topic, "Ignoring non-UTF8 payload.");
-            return;
+            return Ok(());
         };
 
         if topic == "volume/set" {
             let Ok(volume) = payload.trim().parse::<u8>() else {
                 warn!(topic, payload, "Ignoring invalid volume payload.");
-                return;
+                return Ok(());
             };
 
-            AudioDevice::from_default().unwrap().set_vol(volume).unwrap();
-            self.update(mqtt).await;
+            AudioDevice::from_default()?.set_vol(volume)?;
+            self.update(mqtt).await?;
         } else if topic == "mute/set" {
             let should_mute = match payload {
                 "ON" => true,
                 "OFF" => false,
                 _ => {
                     warn!(topic, payload, "Ignoring invalid mute payload.");
-                    return;
+                    return Ok(());
                 }
             };
 
-            AudioDevice::from_default().unwrap().set_mute(should_mute).unwrap();
-            self.update(mqtt).await;
+            AudioDevice::from_default()?.set_mute(should_mute)?;
+            self.update(mqtt).await?;
         } else if topic == "volume/inc" {
             {
-                let device = AudioDevice::from_default().unwrap();
-                let new_vol = (device.get_vol().unwrap() + 1).clamp(0, 100);
-                device.set_vol(new_vol).unwrap();
+                let device = AudioDevice::from_default()?;
+                let new_vol = (device.get_vol()? + 1).clamp(0, 100);
+                device.set_vol(new_vol)?;
             }
-            self.update(mqtt).await;
+            self.update(mqtt).await?;
         } else if topic == "volume/dec" {
             {
-                let device = AudioDevice::from_default().unwrap();
-                let new_vol = (device.get_vol().unwrap() - 1).clamp(0, 100);
-                device.set_vol(new_vol).unwrap();
+                let device = AudioDevice::from_default()?;
+                let new_vol = (device.get_vol()? - 1).clamp(0, 100);
+                device.set_vol(new_vol)?;
             }
-            self.update(mqtt).await;
+            self.update(mqtt).await?;
         }
+        Ok(())
     }
 
-    async fn update(&mut self, mqtt: &MqttScope) {
-        let state = self.get_current_state();
+    async fn update(&mut self, mqtt: &MqttScope) -> eyre::Result<()> {
+        let state = self.get_current_state()?;
 
         mqtt.publish("mute", if state.muted { "ON" } else { "OFF" })
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish("volume", state.volume.to_string())
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
+        Ok(())
     }
 }

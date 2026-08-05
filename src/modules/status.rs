@@ -16,8 +16,8 @@ impl Module for StatusModule {
         "Status Module"
     }
 
-    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
-        HashMap::from([
+    fn discovery_components(&self) -> eyre::Result<HashMap<String, DiscoveryComponent>> {
+        Ok(HashMap::from([
             ("status".into(), DiscoveryComponent {
                 unique_id: "status".into(),
                 name: "Status".into(),
@@ -31,11 +31,12 @@ impl Module for StatusModule {
                 icon: Some("mdi:desktop-classic".into()),
                 ..Default::default()
             })
-        ])
+        ]))
     }
 
-    async fn init(&mut self, _mqtt: &MqttScope) {
+    async fn init(&mut self, _mqtt: &MqttScope) -> eyre::Result<()> {
         // Status is already published in main.rs for availability purposes,
         // so we don't have to do that again.
+        Ok(())
     }
 }

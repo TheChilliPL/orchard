@@ -97,7 +97,7 @@ impl Module for SysInfoModule {
         "System info module"
     }
 
-    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
+    fn discovery_components(&self) -> eyre::Result<HashMap<String, DiscoveryComponent>> {
         let mut h = HashMap::from([
             ("cpu-usage".into(), DiscoveryComponent {
                 unique_id: "cpu-usage".into(),
@@ -164,10 +164,10 @@ impl Module for SysInfoModule {
                 ..Default::default()
             });
         }
-        h
+        Ok(h)
     }
 
-    async fn update(&mut self, mqtt: &MqttScope) {
+    async fn update(&mut self, mqtt: &MqttScope) -> eyre::Result<()> {
         self.sys.refresh_specifics(self.refresh_kind);
 
         let cpu_usage_percent = self.sys.global_cpu_usage();
@@ -180,19 +180,19 @@ impl Module for SysInfoModule {
         mqtt.publish("cpu/usage", cpu_usage_percent.to_string())
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish("ram/total_mib", ram_total_mib.to_string())
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish("ram/usage_mib", ram_usage_mib.to_string())
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish("ram/usage_percent", ram_usage_percent.to_string())
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
 
         if let Some(temp_component_label) = self.temp_component.as_ref() {
             let components = Components::new_with_refreshed_list();
@@ -206,10 +206,11 @@ impl Module for SysInfoModule {
                 )
                 .with_qos(QoS::AtMostOnce)
                 .await
-                .unwrap();
+                ?;
             } else {
                 error!("Temperature component {temp_component_label} unavailable!");
             }
         }
+        Ok(())
     }
 }

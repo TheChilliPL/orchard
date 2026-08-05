@@ -130,7 +130,7 @@ impl ObsModule {
         }
     }
 
-    async fn try_update(&mut self, mqtt: &MqttScope<'_>, client: &obws::Client) -> Result<(), obws::error::Error> {
+    async fn try_update(&mut self, mqtt: &MqttScope<'_>, client: &obws::Client) -> eyre::Result<()> {
         let ver = client.general().version().await?;
         trace!("Connected to OBS {} with server {} on {}.", ver.obs_studio_version, ver.obs_web_socket_version, ver.platform_description);
 
@@ -138,35 +138,35 @@ impl ObsModule {
         let scene = scenes.current_program_scene;
 
         if let Some(scene) = scene {
-            mqtt.publish("obs/scene/uuid", scene.uuid.to_string()).await.unwrap();
-            mqtt.publish("obs/scene/name", scene.name.to_string()).await.unwrap();
+            mqtt.publish("obs/scene/uuid", scene.uuid.to_string()).await?;
+            mqtt.publish("obs/scene/name", scene.name.to_string()).await?;
         } else {
-            mqtt.publish("obs/scene/uuid", "").await.unwrap();
-            mqtt.publish("obs/scene/name", "").await.unwrap();
+            mqtt.publish("obs/scene/uuid", "").await?;
+            mqtt.publish("obs/scene/name", "").await?;
         }
 
         let recording = client.recording().status().await?;
         if recording.active {
             let duration = recording.duration.as_seconds_f32();
-            mqtt.publish("obs/recording", if recording.paused { "Paused" } else { "Recording" }).retained().await.unwrap();
-            mqtt.publish("obs/recording/duration", duration.to_string()).await.unwrap();
+            mqtt.publish("obs/recording", if recording.paused { "Paused" } else { "Recording" }).retained().await?;
+            mqtt.publish("obs/recording/duration", duration.to_string()).await?;
         } else {
-            mqtt.publish("obs/recording", "Stopped").retained().await.unwrap();
-            mqtt.publish("obs/recording/duration", "None").await.unwrap();
+            mqtt.publish("obs/recording", "Stopped").retained().await?;
+            mqtt.publish("obs/recording/duration", "None").await?;
         }
 
         let streaming = client.streaming().status().await?;
         if streaming.active {
             let duration = streaming.duration.as_seconds_f32();
-            mqtt.publish("obs/streaming", "Streaming").retained().await.unwrap();
-            mqtt.publish("obs/streaming/duration", duration.to_string()).await.unwrap();
+            mqtt.publish("obs/streaming", "Streaming").retained().await?;
+            mqtt.publish("obs/streaming/duration", duration.to_string()).await?;
         } else {
-            mqtt.publish("obs/streaming", "Stopped").retained().await.unwrap();
-            mqtt.publish("obs/streaming/duration", "None").await.unwrap();
+            mqtt.publish("obs/streaming", "Stopped").retained().await?;
+            mqtt.publish("obs/streaming/duration", "None").await?;
         }
 
         let virtual_cam_on = client.virtual_cam().status().await?;
-        mqtt.publish("obs/virtual_cam", if virtual_cam_on { "Active" } else { "Stopped" }).retained().await.unwrap();
+        mqtt.publish("obs/virtual_cam", if virtual_cam_on { "Active" } else { "Stopped" }).retained().await?;
 
         Ok(())
     }
@@ -178,7 +178,7 @@ impl Module for ObsModule {
         "OBS module"
     }
 
-    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
+    fn discovery_components(&self) -> eyre::Result<HashMap<String, DiscoveryComponent>> {
         let availability = vec![
             Availability {
                 topic: "obs/available".into(),
@@ -189,7 +189,7 @@ impl Module for ObsModule {
                 ..Default::default()
             },
         ];
-        HashMap::from([
+        Ok(HashMap::from([
             ("scene-uuid".into(), DiscoveryComponent {
                 unique_id: "obs-scene-uuid".into(),
                 name: "OBS current scene UUID".into(),
@@ -452,35 +452,36 @@ impl Module for ObsModule {
                 icon: Some("mdi:fit-to-screen".into()),
                 ..Default::default()
             }),
-        ])
+        ]))
     }
 
-    fn subscriptions(&self) -> Vec<String> {
-        vec![
+    fn subscriptions(&self) -> eyre::Result<Vec<String>> {
+        Ok(vec![
             "obs/recording/command".into(),
             "obs/streaming/command".into(),
             "obs/virtual_cam/command".into()
-        ]
+        ])
     }
 
-    async fn init(&mut self, mqtt: &MqttScope) {
+    async fn init(&mut self, mqtt: &MqttScope) -> eyre::Result<()> {
         // Prevent status from showing up as online at start even when OBS is not available
         // May be overridden on first update
         mqtt.publish("obs/available", "offline")
             .retained()
             .with_qos(QoS::AtLeastOnce)
             .await
-            .unwrap();
+            ?;
+        Ok(())
     }
 
-    async fn handle_message(&mut self, _mqtt: &MqttScope, topic: &str, payload: &[u8]) {
+    async fn handle_message(&mut self, _mqtt: &MqttScope, topic: &str, payload: &[u8]) -> eyre::Result<()> {
         let client = self.client.lock().await;
         let Some(client) = client.as_ref() else {
             error!("Can't handle command! Client is not available.");
-            return;
+            return Ok(());
         };
 
-        let payload = str::from_utf8(payload).unwrap();
+        let payload = str::from_utf8(payload)?;
 
         match topic {
             "obs/recording/command" => match payload {
@@ -506,9 +507,10 @@ impl Module for ObsModule {
             },
             _other => warn!("Unrecognized command topic: {_other}."),
         }
+        Ok(())
     }
 
-    async fn update(&mut self, mqtt: &MqttScope) {
+    async fn update(&mut self, mqtt: &MqttScope) -> eyre::Result<()> {
         match timeout(Duration::from_millis(100), self.client.clone().lock()).await {
             Ok(mut guard) => {
                 match guard.as_ref() {
@@ -516,21 +518,21 @@ impl Module for ObsModule {
                         trace!("Client not available");
                         mqtt.publish("obs/available", "offline")
                             .await
-                            .unwrap();
+                            ?;
                     }
                     Some(client) => match self.try_update(mqtt, client).await {
                         Ok(()) => {
                             mqtt.publish("obs/available", "online")
                                 .await
-                                .unwrap();
+                                ?;
                         }
                         Err(e) => {
-                            warn!("Couldn't connect to OBS server! {e}");
+                            warn!("Couldn't connect to OBS server! {e:?}");
                             *guard = None;
                             self.reconnect_needed.notify_one();
                             mqtt.publish("obs/available", "offline")
                                 .await
-                                .unwrap();
+                                ?;
                         }
                     }
                 }
@@ -539,5 +541,6 @@ impl Module for ObsModule {
                 warn!("Couldn't lock client");
             }
         }
+        Ok(())
     }
 }

@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::thread::scope;
 use std::time::Duration;
 use clap::Parser;
+use eyre::{eyre, Context};
 use futures::future::join_all;
 use mqtt::{MqttOptions, connect_mqtt, topic_matches};
 use prelude::*;
@@ -22,14 +23,14 @@ use tokio::time;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::util::SubscriberInitExt;
 use crate::config::Config;
-use crate::discovery::{DiscoveryPayload, DiscoveryDevice, DiscoveryOrigin, Availability};
+use crate::discovery::{DiscoveryPayload, DiscoveryDevice, DiscoveryOrigin, Availability, DiscoveryComponent};
 use crate::modules::media::MediaModule;
 use crate::modules::Module;
 use crate::modules::status::StatusModule;
 use crate::modules::sysinfo::SysInfoModule;
 use crate::modules::system_control::SystemControlModule;
 use crate::modules::volume::VolumeModule;
-use crate::mqtt::scope::{ClientExt, Scopeable};
+use crate::mqtt::scope::{ClientExt, MqttScope, Scopeable};
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -70,8 +71,20 @@ struct Cli {
     config_path: Option<PathBuf>,
 }
 
+async fn init_module(
+    module: &mut dyn Module,
+    mqtt: &MqttScope<'_>,
+) -> eyre::Result<(HashMap<String, DiscoveryComponent>, Vec<String>)> {
+    let module_name = module.name();
+    let discovery_components = module.discovery_components().wrap_err_with(|| format!("couldn't get discovery components for module {module_name}"))?;
+    let subscriptions = module.subscriptions().wrap_err_with(|| format!("couldn't get subscriptions for module {module_name}"))?;
+
+    module.init(mqtt).await?;
+    Ok((discovery_components, subscriptions))
+}
+
 #[tokio::main(flavor = "current_thread")]
-async fn main() {
+async fn main() -> eyre::Result<()> {
     init_tracing();
 
     _ = dotenv::dotenv().ok();
@@ -128,18 +141,23 @@ async fn main() {
 
     let mut modules = config.load_modules();
 
-    for (module_idx, module) in modules.iter().enumerate() {
-        info!("Preparing module: {}.", module.name());
+    for (module_idx, module) in modules.iter_mut().enumerate() {
+        let module_name = module.name();
+        let (discovery_components, module_subscriptions) = match init_module(module.as_mut(), &mqtt_scope).await {
+            Ok(it) => it,
+            Err(e) => {
+                error!("Couldn't initialize module {module_name}: {e:?}");
+                continue;
+            }
+        };
 
-        let discovery_components = module.discovery_components();
         if !discovery_components.is_empty() {
-            trace!(?discovery_components, "Module {} added discovery components.", module.name());
+            trace!(?discovery_components, "Module {module_name} added discovery components.");
             components.extend(discovery_components);
         }
 
-        let module_subscriptions = module.subscriptions();
         if !module_subscriptions.is_empty() {
-            trace!(subscriptions = ?module_subscriptions, "Module {} added subscriptions.", module.name());
+            trace!(subscriptions = ?module_subscriptions, "Module {module_name} added subscriptions.");
             subscriptions.extend(
                 module_subscriptions
                     .into_iter()
@@ -148,8 +166,9 @@ async fn main() {
         }
     }
 
-    for topic in subscriptions.iter().map(|(topic, _)| topic).collect::<std::collections::HashSet<_>>() {
-        mqtt_client.subscribe(mqtt_scope.scope_topic(topic), QoS::AtLeastOnce).await.unwrap();
+    for topic in subscriptions.iter().map(|(topic, _)| topic) {
+        mqtt_client.subscribe(mqtt_scope.scope_topic(topic), QoS::AtLeastOnce).await
+            .wrap_err("couldn't subscribe to MQTT topics")?;
     }
 
     let discovery = DiscoveryPayload {
@@ -179,12 +198,8 @@ async fn main() {
         QoS::AtLeastOnce,
         true,
         serde_json::to_string(&discovery).unwrap(),
-    ).await.unwrap();
-
-    for module in modules.iter_mut() {
-        debug!("Initializing module: {}", module.name());
-        module.init(&mqtt_scope).await;
-    }
+    ).await
+        .wrap_err("couldn't publish discovery data")?;
 
     let mut update_interval = time::interval(Duration::from_secs(1));
 
@@ -213,22 +228,30 @@ async fn main() {
                 module_idxs.dedup();
 
                 for module_idx in module_idxs {
-                    modules[module_idx]
+                    let module = &mut modules[module_idx];
+                    let result = module
                         .handle_message(&mqtt_scope, &topic, &payload)
                         .await;
+                    if let Err(e) = result {
+                        warn!("Error in module {} when trying to handle a message: {e:?}", module.name());
+                    }
                 }
             }
             _ = update_interval.tick() => {
                 join_all(
                     modules.iter_mut().map(async |m| {
-                        trace!("Starting update for {}", m.name());
-                        m.update(&mqtt_scope).await;
-                        trace!("Finishing update for {}", m.name());
+                        trace!("Updating {}", m.name());
+                        let result = m.update(&mqtt_scope).await;
+                        if let Err(e) = result {
+                            warn!("Error in module {} when trying to update: {e:?}", m.name());
+                        }
                     })
                 ).await;
             }
         }
     }
+
+    Ok(())
 }
 
 fn init_tracing() {

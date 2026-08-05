@@ -1,6 +1,7 @@
 use std::default::Default;
 use std::collections::HashMap;
 use async_trait::async_trait;
+use eyre::eyre;
 use crate::modules::Module;
 use nvml_wrapper::error::NvmlError;
 use nvml_wrapper::{Device, Nvml};
@@ -36,8 +37,8 @@ impl Module for NvidiaModule {
         "Nvidia module"
     }
 
-    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
-        HashMap::from([
+    fn discovery_components(&self) -> eyre::Result<HashMap<String, DiscoveryComponent>> {
+        Ok(HashMap::from([
             ("nvidia-gpu_usage".into(), DiscoveryComponent {
                 unique_id: "nvidia-gpu_usage".into(),
                 name: "GPU usage".into(),
@@ -96,14 +97,16 @@ impl Module for NvidiaModule {
                 }.into(),
                 ..Default::default()
             }),
-        ])
+        ]))
     }
 
-    async fn update(&mut self, mqtt: &MqttScope) {
-        let dev = self.device().unwrap();
+    async fn update(&mut self, mqtt: &MqttScope) -> eyre::Result<()> {
+        return Err(eyre!("meow").wrap_err("purr"));
 
-        let mem_info = dev.memory_info().unwrap();
-        let util = dev.utilization_rates().unwrap();
+        let dev = self.device()?;
+
+        let mem_info = dev.memory_info()?;
+        let util = dev.utilization_rates()?;
 
         let gpu_usage = util.gpu;
         let vram_usage_mib = mem_info.used as f32 / 1024.0 / 1024.0;
@@ -118,25 +121,26 @@ impl Module for NvidiaModule {
         mqtt.publish("nvidia/gpu_usage", gpu_usage.to_string())
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish("nvidia/vram_usage_mib", vram_usage_mib.to_string())
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish("nvidia/vram_total_mib", vram_total_mib.to_string())
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish("nvidia/vram_usage_percent", vram_usage_percent.to_string())
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish(
             "nvidia/gpu_temp",
             gpu_temp.as_ref().ok().map_or_else(|| "".to_string(), |it| it.to_string()),
         )
         .with_qos(QoS::AtMostOnce)
         .await
-        .unwrap();
+        ?;
+        Ok(())
     }
 }

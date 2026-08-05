@@ -69,7 +69,7 @@ impl ExponentialBackoff {
     
     pub fn new_or_default(config: ExponentialBackoffConfig) -> Self {
         Self::new(config).unwrap_or_else(|e| {
-            error!("Exponential backoff config is invalid: {e}");
+            error!("Exponential backoff config is invalid: {e:?}");
             ExponentialBackoff::default()
         })
     }

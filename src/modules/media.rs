@@ -26,8 +26,8 @@ impl Module for MediaModule {
         "Media control module"
     }
 
-    fn discovery_components(&self) -> HashMap<String, DiscoveryComponent> {
-        HashMap::from([
+    fn discovery_components(&self) -> eyre::Result<HashMap<String, DiscoveryComponent>> {
+        Ok(HashMap::from([
             ("media_toggle".into(), DiscoveryComponent {
                 unique_id: "media_play_pause".into(),
                 name: "Play/pause".into(),
@@ -114,26 +114,27 @@ impl Module for MediaModule {
                 ..Default::default()
             }),
 
-        ])
+        ]))
     }
 
-    fn subscriptions(&self) -> Vec<String> {
-        vec![
+    fn subscriptions(&self) -> eyre::Result<Vec<String>> {
+        Ok(vec![
             "media/toggle".into(),
             "media/prev".into(),
             "media/next".into(),
             "media/position/set".into(), // TODO implement
-        ]
+        ])
     }
 
-    async fn init(&mut self, mqtt: &MqttScope) {
-        self.update(mqtt).await;
+    async fn init(&mut self, mqtt: &MqttScope) -> eyre::Result<()> {
+        self.update(mqtt).await?;
+        Ok(())
     }
 
-    async fn handle_message(&mut self, mqtt: &MqttScope, topic: &str, payload: &[u8]) {
+    async fn handle_message(&mut self, mqtt: &MqttScope, topic: &str, payload: &[u8]) -> eyre::Result<()> {
         let Ok(payload) = std::str::from_utf8(payload) else {
             warn!(topic, "Ignoring non-UTF8 payload.");
-            return;
+            return Ok(());
         };
 
         if topic == "media/toggle" {
@@ -146,10 +147,11 @@ impl Module for MediaModule {
             warn!(topic, ?payload, "Ignoring unknown topic.");
         }
 
-        self.update(mqtt).await;
+        self.update(mqtt).await?;
+        Ok(())
     }
 
-    async fn update(&mut self, mqtt: &MqttScope) {
+    async fn update(&mut self, mqtt: &MqttScope) -> eyre::Result<()> {
         let (status, metadata) = {
             let player = self.active_player();
 
@@ -181,11 +183,11 @@ impl Module for MediaModule {
         mqtt.publish("media/status", status_text)
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish("media/position", position_text)
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
 
         let title = metadata.as_ref().map_or("", |m| &m.title);
         let artists = metadata.as_ref().map_or("", |m| &m.artists);
@@ -194,15 +196,16 @@ impl Module for MediaModule {
         mqtt.publish("media/title", title)
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish("media/artists", artists)
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
         mqtt.publish("media/duration", duration_text)
             .with_qos(QoS::AtMostOnce)
             .await
-            .unwrap();
+            ?;
+        Ok(())
     }
 }
 
